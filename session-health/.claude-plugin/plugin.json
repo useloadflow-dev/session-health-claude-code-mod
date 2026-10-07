@@ -5,5 +5,49 @@
   "author": {
     "name": "Jack Halperin"
   },
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "heavyPct": {
+      "type": "number",
+      "title": "Getting-heavy at context %",
+      "description": "Context % at which the band says 'getting heavy'",
+      "default": 45
+    },
+    "compactPct": {
+      "type": "number",
+      "title": "Compact-now at context %",
+      "description": "Context % at which the band says 'compact now'",
+      "default": 60
+    },
+    "heavyTurns": {
+      "type": "number",
+      "title": "Getting-heavy at turns left",
+      "description": "Estimated turns before auto-compact that count as 'getting heavy'",
+      "default": 8
+    },
+    "compactTurns": {
+      "type": "number",
+      "title": "Compact-now at turns left",
+      "description": "Estimated turns before auto-compact that count as 'compact now'",
+      "default": 4
+    },
+    "freshCompactions": {
+      "type": "number",
+      "title": "Start-fresh after N compactions",
+      "description": "Compactions after which a heavy session should start fresh",
+      "default": 2
+    },
+    "freshTurns": {
+      "type": "number",
+      "title": "Start-fresh after N turns",
+      "description": "Turns after which a heavy session should start fresh",
+      "default": 150
+    },
+    "budgetWarnPct": {
+      "type": "number",
+      "title": "Budget warning at %",
+      "description": "5-hour or weekly usage % that shows the budget warning",
+      "default": 90
+    }
+  }
 }

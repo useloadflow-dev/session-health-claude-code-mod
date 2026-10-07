@@ -4,6 +4,8 @@ import type { HandoffPhase, Snapshot, ToastMemory } from '../types'
 import { Band } from './band.tsx'
 import { fitLine1, line2, type Action, type BandModel } from './layout.ts'
 import { DEFAULTS, turnsLeft, verdict, type Thresholds } from './verdict.ts'
+import { toastsFor } from './toasts.ts'
+import { COMPACT_INSTRUCTIONS } from './handoff.ts'
 
 type $ = EngineInterface
 
@@ -52,6 +54,14 @@ async function record($: $, m: Measured) {
   await update($, turns, () => n)
 }
 
+async function notify($: $, t: Thresholds) {
+  const m = await modelOf($, t)
+  const prev = await read($, toasted)
+  const { messages, memory } = toastsFor(prev, { level: m.level, fiveHour: m.fiveHour, week: m.week })
+  await update($, toasted, () => memory)
+  for (const msg of messages) $.ui.toast(msg)
+}
+
 async function modelOf($: $, t: Thresholds): Promise<BandModel> {
   const snap = await read($, snapshot)
   const hist = await read($, history)
@@ -96,6 +106,25 @@ export const register: Register = (on, options) => {
     if (tokens !== undefined) {
       await update($, history, h => (h[h.length - 1] === tokens ? h : [...h, tokens].slice(-8)))
     }
+    await notify($, t)
+    return next(e)
+  })
+
+  on('session.compact', async ($, e, next) => {
+    const r = await next(e)
+    if (e.trigger !== 'precompute' && !r.skip) {
+      await update($, compactions, n => n + 1)
+      await update($, history, () => [])
+    }
+    return r
+  }).catch(($, e, next) => next(e))
+
+  on('session.end', async ($, e, next) => {
+    if (e.reason === 'clear') {
+      await update($, compactions, () => 0)
+      await update($, history, () => [])
+      await update($, toasted, () => ({ level: 'healthy', budget: {} }))
+    }
     return next(e)
   })
 
@@ -114,5 +143,22 @@ export const register: Register = (on, options) => {
   })
 }
 
-// Task 5 and Task 6 replace this.
-async function onAction(_$: $, _a: Action) {}
+async function onAction($: $, a: Action) {
+  if (a === 'compact') return compactNow($)
+  return startHandoff($)
+}
+
+async function compactNow($: $) {
+  await update($, handoff, () => ({ phase: 'compacting' }))
+  try {
+    const r = await $.session.compact({ instructions: COMPACT_INSTRUCTIONS })
+    if (r.skip) $.ui.toast(`Compact skipped: ${r.skip}`)
+  } catch (err) {
+    $.ui.toast(`Compact failed: ${err instanceof Error ? err.message : String(err)}`)
+  } finally {
+    await update($, handoff, () => ({ phase: 'idle' }))
+  }
+}
+
+// Task 6 replaces this.
+async function startHandoff(_$: $) {}

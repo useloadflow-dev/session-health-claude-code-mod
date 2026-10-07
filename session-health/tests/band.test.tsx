@@ -42,3 +42,18 @@ test('band yields to a survey', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: /CONTEXT/ })).toBe(undefined)
   await ui.unmount()
 })
+
+test('[compact] runs a smart compaction', { options: { compactPct: 0, heavyPct: 0 } }, async ($, on) => {
+  engineBand(on)
+  const asked: string[] = []
+  on('session.compact', (_$, e) => {
+    asked.push(e.instructions ?? '')
+    return { skip: 'test' }
+  })
+  const ui = await $.ui.mount({ plugin: 'session-health', surface: 'terminal', ...BAND })
+  expect(await ui.find({ key: 'compact' })).toBeDefined()
+  await ui.press({ key: 'compact' })
+  expect(asked.length).toBe(1)
+  expect(asked[0]).toContain('Preserve: the current goal')
+  await ui.unmount()
+})
