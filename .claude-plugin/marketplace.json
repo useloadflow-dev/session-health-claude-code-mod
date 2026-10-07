@@ -1,0 +1,13 @@
+{
+  "name": "session-health",
+  "description": "session-health: context and usage meters with compact / fresh-start advice for Claude Code",
+  "owner": {
+    "name": "Jack Halperin"
+  },
+  "plugins": [
+    {
+      "name": "session-health",
+      "source": "./session-health"
+    }
+  ]
+}
