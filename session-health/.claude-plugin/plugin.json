@@ -1,0 +1,9 @@
+{
+  "name": "session-health",
+  "version": "0.1.0",
+  "description": "Context, 5-hour and weekly usage meters above the prompt, with compact / fresh-start advice and auto-loading hand-offs.",
+  "author": {
+    "name": "Jack Halperin"
+  },
+  "types": "./types/index.d.ts"
+}
