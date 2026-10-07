@@ -124,10 +124,10 @@ test(
     let release: () => void = () => {}
     const gate = new Promise<void>(resolve => (release = resolve))
     let compacting = false
-    on('session.compact', async () => {
+    on('command.run', { command: 'compact' }, async () => {
       compacting = true
       await gate
-      return { skip: 'test' }
+      return { text: '' }
     })
     on('model.fork', () => ({ value: { isAnswered: true, text: 'brief', usage: USAGE } }))
     const ui = await $.ui.mount({ plugin: 'session-health', surface: 'terminal', ...BAND })
@@ -164,5 +164,16 @@ test('M-4: /resume also clears "hand-off ready"', async ($, on) => {
   await $.session.end({ reason: 'resume', sessionId: 's1', resume: {} } as never)
   const ui = await $.ui.mount({ plugin: 'session-health', surface: 'terminal', ...BAND })
   expect(await ui.find({ type: 'Text', text: /hand-off ready/ })).toBe(undefined)
+  await ui.unmount()
+})
+
+test('a compaction of the main conversation shows as ⟲1 on line 1', async ($, on) => {
+  host(on)
+  const summary = [{ role: 'user', text: 'summary', toolUses: [] }] as never
+  on('session.compact', () => ({ messages: summary }))
+  await $.session.measure(measure(30, 60_000))
+  await $.session.compact({ trigger: 'manual', messages: summary } as never)
+  const ui = await $.ui.mount({ plugin: 'session-health', surface: 'terminal', ...BAND })
+  expect(await ui.find({ type: 'Text', text: /⟲1/ })).toBeDefined()
   await ui.unmount()
 })

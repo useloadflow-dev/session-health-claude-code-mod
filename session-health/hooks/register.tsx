@@ -225,8 +225,10 @@ async function onAction($: $, a: Action) {
 async function compactNow($: $) {
   await setPhase($, 'compacting')
   try {
-    const r = await $.session.compact({ instructions: COMPACT_INSTRUCTIONS })
-    if (r.skip) $.ui.toast(`Compact skipped: ${r.skip}`)
+    // Run /compact as if typed: it works on every surface (a direct
+    // $.session.compact is refused headless), and the engine's own
+    // session.compact (trigger 'manual') reaches our hook, so ⟲ counts it.
+    await $.command.run({ command: 'compact', args: COMPACT_INSTRUCTIONS })
   } catch (err) {
     $.ui.toast(`Compact failed: ${err instanceof Error ? err.message : String(err)}`)
   } finally {

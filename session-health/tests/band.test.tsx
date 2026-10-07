@@ -43,12 +43,15 @@ test('band yields to a survey', async ($, on) => {
   await ui.unmount()
 })
 
-test('[compact] runs a smart compaction', { options: { compactPct: 0, heavyPct: 0 } }, async ($, on) => {
+test('[compact] runs /compact with the smart instructions, as if typed', { options: { compactPct: 0, heavyPct: 0 } }, async ($, on) => {
   engineBand(on)
   const asked: string[] = []
-  on('session.compact', (_$, e) => {
-    asked.push(e.instructions ?? '')
-    return { skip: 'test' }
+  on('command.run', { command: 'compact' }, (_$, e) => {
+    asked.push(e.args)
+    return { text: '' }
+  })
+  on('session.compact', () => {
+    throw new Error('$.session.compact: not available in a headless (-p / SDK) session yet')
   })
   const ui = await $.ui.mount({ plugin: 'session-health', surface: 'terminal', ...BAND })
   expect(await ui.find({ key: 'compact' })).toBeDefined()
