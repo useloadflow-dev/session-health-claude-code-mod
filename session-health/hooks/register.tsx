@@ -1,11 +1,20 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
-import type { HandoffPhase, Snapshot, ToastMemory } from '../types'
+import type { HandoffPhase, Phase, Snapshot, ToastMemory } from '../types'
 import { Band } from './band.tsx'
 import { fitLine1, line2, type Action, type BandModel } from './layout.ts'
 import { DEFAULTS, turnsLeft, verdict, type Thresholds } from './verdict.ts'
 import { toastsFor } from './toasts.ts'
-import { COMPACT_INSTRUCTIONS } from './handoff.ts'
+import {
+  COMPACT_INSTRUCTIONS,
+  briefPrompt,
+  handoffPath,
+  injection,
+  shouldLoad,
+  storeKey,
+  transcriptPrompt,
+  type HandoffRecord,
+} from './handoff.ts'
 
 type $ = EngineInterface
 
@@ -15,6 +24,9 @@ const compactions = atom({ plugin: 'session-health', key: 'compactions' } as con
 const turns = atom({ plugin: 'session-health', key: 'turns' } as const, 0)
 const handoff = atom({ plugin: 'session-health', key: 'handoff' } as const, { phase: 'idle' } as HandoffPhase)
 const toasted = atom({ plugin: 'session-health', key: 'toasted' } as const, { level: 'healthy', budget: {} } as ToastMemory)
+
+const setPhase = ($: $, phase: Phase, at?: number) =>
+  update($, handoff, (): HandoffPhase => (at === undefined ? { phase } : { phase, at }))
 
 type Measured = {
   context: { tokens?: number; window: number; percent?: number }
@@ -94,11 +106,32 @@ export const register: Register = (on, options) => {
   const t: Thresholds = { ...DEFAULTS, ...(options as Partial<Thresholds>) }
 
   on('session.start', async ($, e, next) => {
+    await $.command.register({ name: 'handoff', description: 'Write a hand-off brief for a fresh session' })
     try {
       await record($, await $.session.usage())
     } catch {}
     return next(e)
   })
+
+  on('command.run', { command: 'handoff' }, async $ => {
+    const written = await startHandoff($)
+    if (written === 'busy') return { text: 'A hand-off is already being written.' }
+    return {
+      text: written
+        ? 'Hand-off written to .claude/handoff.md — run /clear to start fresh.'
+        : 'Hand-off not written (see toast).',
+    }
+  })
+
+  on('prompt.submit', async ($, e, next) => {
+    let brief: string | undefined
+    try {
+      brief = await loadHandoff($)
+    } catch (err) {
+      $.ui.status(`session-health: hand-off not loaded (${err instanceof Error ? err.message : String(err)})`)
+    }
+    return brief === undefined ? next(e) : next({ ...e, context: [...(e.context ?? []), injection(brief)] })
+  }).catch(($, e, next) => next(e))
 
   on('session.measure', async ($, e, next) => {
     await record($, e)
@@ -106,6 +139,8 @@ export const register: Register = (on, options) => {
     if (tokens !== undefined) {
       await update($, history, h => (h[h.length - 1] === tokens ? h : [...h, tokens].slice(-8)))
     }
+    const ho = await read($, handoff)
+    if (ho.phase === 'resumed' && (await $.session.turns()) >= 1) await setPhase($, 'idle')
     await notify($, t)
     return next(e)
   })
@@ -124,6 +159,7 @@ export const register: Register = (on, options) => {
       await update($, compactions, () => 0)
       await update($, history, () => [])
       await update($, toasted, () => ({ level: 'healthy', budget: {} }))
+      await update($, handoff, (h): HandoffPhase => (h.phase === 'ready' ? { phase: 'idle' } : h))
     }
     return next(e)
   })
@@ -145,20 +181,63 @@ export const register: Register = (on, options) => {
 
 async function onAction($: $, a: Action) {
   if (a === 'compact') return compactNow($)
-  return startHandoff($)
+  await startHandoff($)
 }
 
 async function compactNow($: $) {
-  await update($, handoff, () => ({ phase: 'compacting' }))
+  await setPhase($, 'compacting')
   try {
     const r = await $.session.compact({ instructions: COMPACT_INSTRUCTIONS })
     if (r.skip) $.ui.toast(`Compact skipped: ${r.skip}`)
   } catch (err) {
     $.ui.toast(`Compact failed: ${err instanceof Error ? err.message : String(err)}`)
   } finally {
-    await update($, handoff, () => ({ phase: 'idle' }))
+    await setPhase($, 'idle')
   }
 }
 
-// Task 6 replaces this.
-async function startHandoff(_$: $) {}
+async function startHandoff($: $): Promise<boolean | 'busy'> {
+  const current = await read($, handoff)
+  if (current.phase === 'writing') {
+    $.ui.toast('A hand-off is already being written')
+    return 'busy'
+  }
+  await setPhase($, 'writing')
+  try {
+    const root = await $.session.root()
+    const project = root.split('/').filter(Boolean).pop() ?? root
+    const stamp = new Date(await $.clock.now()).toISOString().slice(0, 16).replace('T', ' ')
+    const prompt = briefPrompt(project, stamp)
+
+    let r = await $.model.fork({ prompt })
+    if (!r.isAnswered && r.reason === 'nothing-to-fork') {
+      const messages = await $.session.messages()
+      r = await $.model.complete({ model: await $.session.model(), prompt: transcriptPrompt(messages) + prompt })
+    }
+    if (!r.isAnswered) throw new Error(r.reason)
+
+    const path = handoffPath(root)
+    await $.fs.write(path, r.text)
+    const rec: HandoffRecord = { path, writtenAt: await $.clock.now(), sessionId: await $.session.id(), consumed: false }
+    await $.store.set(storeKey(root), rec)
+    await setPhase($, 'ready', rec.writtenAt)
+    $.ui.toast('Hand-off ready — run /clear')
+    return true
+  } catch (err) {
+    await setPhase($, 'idle')
+    $.ui.toast(`Hand-off failed: ${err instanceof Error ? err.message : String(err)}`)
+    return false
+  }
+}
+
+// The brief to hand the model with this prompt, when a fresh conversation has one waiting.
+async function loadHandoff($: $): Promise<string | undefined> {
+  const root = await $.session.root()
+  const rec = (await $.store.get(storeKey(root))) as HandoffRecord | undefined
+  if (!shouldLoad(rec, await $.clock.now(), await $.session.turns())) return undefined
+  if (rec!.sessionId === (await $.session.id())) return undefined
+  const brief = await $.fs.read(rec!.path)
+  await $.store.set(storeKey(root), { ...rec!, consumed: true })
+  await setPhase($, 'resumed', rec!.writtenAt)
+  return brief
+}
