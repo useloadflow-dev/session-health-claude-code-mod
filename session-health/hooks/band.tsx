@@ -1,5 +1,5 @@
 import type { EngineInterface } from 'claude-code'
-import { BUTTON_LABEL, type Action, type Line2, type Segment } from './layout.ts'
+import { BUTTON_HOTKEY, BUTTON_LABEL, type Action, type Line2, type Segment } from './layout.ts'
 
 type Elements = ReturnType<EngineInterface['ui']['resolve']>
 
@@ -32,6 +32,7 @@ export function Band(props: {
               <Button
                 key={a}
                 label={BUTTON_LABEL[a]}
+                hotkey={BUTTON_HOTKEY[a]}
                 variant={a === 'fresh' ? 'primary' : undefined}
                 onPress={() => props.onAction(a)}
               />

@@ -30,6 +30,8 @@ const MIN_TIER = 5
 const MIN_TEXT = 16
 
 export const BUTTON_LABEL: Record<Action, string> = { compact: 'compact', fresh: 'fresh start' }
+// One key presses each button once the band has the focus (ctrl+x tab).
+export const BUTTON_HOTKEY: Record<Action, string> = { compact: 'c', fresh: 'f' }
 
 // Cells the buttons take on the terminal: `[ label ]` and a gap before each.
 export function buttonsWidth(actions: readonly Action[]): number {

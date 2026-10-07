@@ -60,3 +60,11 @@ test('[compact] runs /compact with the smart instructions, as if typed', { optio
   expect(asked[0]).toContain('Preserve: the current goal')
   await ui.unmount()
 })
+
+test('band buttons carry one-key hotkeys: c for [compact], f for [fresh start]', { options: { compactPct: 0, heavyPct: 0 } }, async ($, on) => {
+  engineBand(on)
+  const ui = await $.ui.mount({ plugin: 'session-health', surface: 'terminal', ...BAND })
+  expect((await ui.find({ key: 'compact' }))?.props.hotkey).toBe('c')
+  expect((await ui.find({ key: 'fresh' }))?.props.hotkey).toBe('f')
+  await ui.unmount()
+})
