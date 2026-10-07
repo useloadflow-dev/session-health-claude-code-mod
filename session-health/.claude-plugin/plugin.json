@@ -5,6 +5,9 @@
   "author": {
     "name": "Jack Halperin"
   },
+  "homepage": "https://github.com/useloadflow-dev/session-health-claude-code-mod",
+  "repository": "https://github.com/useloadflow-dev/session-health-claude-code-mod",
+  "license": "MIT",
   "types": "./types/index.d.ts",
   "userConfig": {
     "heavyPct": {

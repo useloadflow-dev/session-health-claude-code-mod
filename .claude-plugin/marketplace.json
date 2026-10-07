@@ -7,7 +7,8 @@
   "plugins": [
     {
       "name": "session-health",
-      "source": "./session-health"
+      "source": "./session-health",
+      "description": "Context, 5-hour and weekly usage meters above the prompt, with compact / fresh-start advice and auto-loading hand-offs."
     }
   ]
 }

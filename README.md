@@ -18,10 +18,16 @@ The band shrinks gracefully on narrow terminals, down to `58% · 31% · 64% ●`
 ## Install
 
 ```
-/plugin install session-health --marketplace <owner>/<repo>
+/plugin install session-health --marketplace useloadflow-dev/session-health-claude-code-mod
 ```
 
 Answer `y` to add the marketplace, then pick a scope.
+
+Hand-off briefs are written to `.claude/handoff.md` in each project. You'll probably want that file out of git:
+
+```
+echo .claude/handoff.md >> .gitignore
+```
 
 ## Settings
 
@@ -45,3 +51,7 @@ The SESSION and WEEK meters appear only on a Claude subscription. API-key sessio
 claude plugin validate session-health
 claude plugin test session-health
 ```
+
+## License
+
+MIT
