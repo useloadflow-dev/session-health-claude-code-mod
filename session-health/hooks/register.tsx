@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { HandoffPhase, Phase, Snapshot, ToastMemory } from '../types'
 import { Band } from './band.tsx'
 import { fitLine1, line2, type Action, type BandModel } from './layout.ts'
-import { DEFAULTS, turnsLeft, verdict, type Thresholds } from './verdict.ts'
+import { DEFAULTS, autoCompactPoint, countsCompaction, turnsLeft, verdict, type Thresholds } from './verdict.ts'
 import { toastsFor } from './toasts.ts'
 import {
   COMPACT_INSTRUCTIONS,
@@ -25,21 +25,44 @@ const turns = atom({ plugin: 'session-health', key: 'turns' } as const, 0)
 const handoff = atom({ plugin: 'session-health', key: 'handoff' } as const, { phase: 'idle' } as HandoffPhase)
 const toasted = atom({ plugin: 'session-health', key: 'toasted' } as const, { level: 'healthy', budget: {} } as ToastMemory)
 
+const handoffRef = { plugin: 'session-health', key: 'handoff' } as const
+
+const STALE_MS = 5 * 60 * 1000
+const READY_TURNS = 3
+
 const setPhase = ($: $, phase: Phase, at?: number) =>
   update($, handoff, (): HandoffPhase => (at === undefined ? { phase } : { phase, at }))
+
+// Settles a running phase without disturbing one another action has moved on to.
+const endPhase = ($: $, running: Phase) =>
+  update($, handoff, (h): HandoffPhase => (h.phase === running ? { phase: 'idle' } : h))
+
+// The only way into 'writing': one claim wins even when two presses race.
+let writing = false
+async function claimWriting($: $, now: number): Promise<boolean> {
+  if (writing) return false
+  writing = true
+  const held = await $.state.get(handoffRef)
+  const h = held.value
+  const busy = h?.phase === 'writing' && now - (h.at ?? 0) < STALE_MS
+  if (busy) {
+    writing = false
+    return false
+  }
+  const set = await $.state.set(handoffRef, { phase: 'writing', at: now }, { ifVersion: held.version })
+  if (!set.isSet) writing = false
+  return set.isSet
+}
 
 type Measured = {
   context: { tokens?: number; window: number; percent?: number }
   rateLimits: readonly { kind: string; percentUsed: number; resetsAt?: string }[]
 }
 
-async function autoCompactAt($: $, window: number): Promise<number> {
+async function autoCompactAt($: $, window: number): Promise<number | undefined> {
   try {
     const usage = await $.session.usage({ breakdown: 'summary' })
-    const b = usage.context.breakdown
-    if (!b) return window
-    const buffer = b.categories.filter(c => c.kind === 'buffer').reduce((n, c) => n + c.tokens, 0)
-    return Math.max(1, b.rawMaxTokens - buffer)
+    return autoCompactPoint(usage.context.breakdown, window)
   } catch {
     return window
   }
@@ -51,10 +74,9 @@ async function record($: $, m: Measured) {
     if (!r) return undefined
     return r.resetsAt === undefined ? { percent: r.percentUsed } : { percent: r.percentUsed, resetsAt: r.resetsAt }
   }
-  const snap: Snapshot = {
-    window: m.context.window,
-    autoCompactAt: await autoCompactAt($, m.context.window),
-  }
+  const snap: Snapshot = { window: m.context.window }
+  const at = await autoCompactAt($, m.context.window)
+  if (at !== undefined) snap.autoCompactAt = at
   if (m.context.percent !== undefined) snap.percent = m.context.percent
   if (m.context.tokens !== undefined) snap.tokens = m.context.tokens
   const five = win('five_hour')
@@ -81,7 +103,7 @@ async function modelOf($: $, t: Thresholds): Promise<BandModel> {
   const nTurns = await read($, turns)
   const ho = await read($, handoff)
   const now = await $.clock.now()
-  const left = snap ? turnsLeft(hist, snap.autoCompactAt) : undefined
+  const left = snap?.autoCompactAt !== undefined ? turnsLeft(hist, snap.autoCompactAt) : undefined
   const v = verdict(
     { percent: snap?.percent, turnsLeft: left, compactions: comp, turns: nTurns, fiveHour: snap?.fiveHour, week: snap?.week },
     t,
@@ -107,6 +129,11 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'handoff', description: 'Write a hand-off brief for a fresh session' })
+    // A reload drops whatever compaction or fork was in flight; its phase must not outlive it.
+    writing = false
+    await update($, handoff, (h): HandoffPhase =>
+      h.phase === 'writing' || h.phase === 'compacting' ? { phase: 'idle' } : h,
+    )
     try {
       await record($, await $.session.usage())
     } catch {}
@@ -140,14 +167,16 @@ export const register: Register = (on, options) => {
       await update($, history, h => (h[h.length - 1] === tokens ? h : [...h, tokens].slice(-8)))
     }
     const ho = await read($, handoff)
-    if (ho.phase === 'resumed' && (await $.session.turns()) >= 1) await setPhase($, 'idle')
+    const nTurns = await $.session.turns()
+    if (ho.phase === 'resumed' && nTurns >= 1) await endPhase($, 'resumed')
+    if (ho.phase === 'ready' && nTurns >= (ho.turn ?? 0) + READY_TURNS) await endPhase($, 'ready')
     await notify($, t)
     return next(e)
   })
 
   on('session.compact', async ($, e, next) => {
     const r = await next(e)
-    if (e.trigger !== 'precompute' && !r.skip) {
+    if (countsCompaction(e, Boolean(r.skip))) {
       await update($, compactions, n => n + 1)
       await update($, history, () => [])
     }
@@ -155,11 +184,20 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('session.end', async ($, e, next) => {
-    if (e.reason === 'clear') {
+    if (e.reason === 'clear' || e.reason === 'resume') {
+      // The next conversation's figures arrive with its first measure; until then keep only the budgets.
+      await update($, snapshot, s => {
+        if (!s) return s
+        const kept: Snapshot = { window: s.window }
+        if (s.fiveHour) kept.fiveHour = s.fiveHour
+        if (s.week) kept.week = s.week
+        return kept
+      })
+      await update($, turns, () => 0)
       await update($, compactions, () => 0)
       await update($, history, () => [])
       await update($, toasted, () => ({ level: 'healthy', budget: {} }))
-      await update($, handoff, (h): HandoffPhase => (h.phase === 'ready' ? { phase: 'idle' } : h))
+      await endPhase($, 'ready')
     }
     return next(e)
   })
@@ -192,17 +230,15 @@ async function compactNow($: $) {
   } catch (err) {
     $.ui.toast(`Compact failed: ${err instanceof Error ? err.message : String(err)}`)
   } finally {
-    await setPhase($, 'idle')
+    await endPhase($, 'compacting')
   }
 }
 
 async function startHandoff($: $): Promise<boolean | 'busy'> {
-  const current = await read($, handoff)
-  if (current.phase === 'writing') {
+  if (!(await claimWriting($, await $.clock.now()))) {
     $.ui.toast('A hand-off is already being written')
     return 'busy'
   }
-  await setPhase($, 'writing')
   try {
     const root = await $.session.root()
     const project = root.split('/').filter(Boolean).pop() ?? root
@@ -212,6 +248,7 @@ async function startHandoff($: $): Promise<boolean | 'busy'> {
     let r = await $.model.fork({ prompt })
     if (!r.isAnswered && r.reason === 'nothing-to-fork') {
       const messages = await $.session.messages()
+      if (messages.length === 0) throw new Error('nothing to hand off yet')
       r = await $.model.complete({ model: await $.session.model(), prompt: transcriptPrompt(messages) + prompt })
     }
     if (!r.isAnswered) throw new Error(r.reason)
@@ -220,13 +257,16 @@ async function startHandoff($: $): Promise<boolean | 'busy'> {
     await $.fs.write(path, r.text)
     const rec: HandoffRecord = { path, writtenAt: await $.clock.now(), sessionId: await $.session.id(), consumed: false }
     await $.store.set(storeKey(root), rec)
-    await setPhase($, 'ready', rec.writtenAt)
+    const turn = await $.session.turns()
+    await update($, handoff, (): HandoffPhase => ({ phase: 'ready', at: rec.writtenAt, turn }))
     $.ui.toast('Hand-off ready — run /clear')
     return true
   } catch (err) {
-    await setPhase($, 'idle')
+    await endPhase($, 'writing')
     $.ui.toast(`Hand-off failed: ${err instanceof Error ? err.message : String(err)}`)
     return false
+  } finally {
+    writing = false
   }
 }
 

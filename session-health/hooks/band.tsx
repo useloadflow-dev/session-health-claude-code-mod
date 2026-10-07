@@ -1,5 +1,5 @@
 import type { EngineInterface } from 'claude-code'
-import type { Action, Line2, Segment } from './layout.ts'
+import { BUTTON_LABEL, type Action, type Line2, type Segment } from './layout.ts'
 
 type Elements = ReturnType<EngineInterface['ui']['resolve']>
 
@@ -27,12 +27,16 @@ export function Band(props: {
           <Box flexGrow={1}>
             <Text wrap="truncate-end">{segments(Text, l2.segments)}</Text>
           </Box>
-          {l2.actions.includes('compact') && (
-            <Button key="compact" label="compact" onPress={() => props.onAction('compact')} />
-          )}
-          {l2.actions.includes('fresh') && (
-            <Button key="fresh" label="fresh start" variant="primary" onPress={() => props.onAction('fresh')} />
-          )}
+          {l2.actions.map(a => (
+            <Box flexShrink={0} marginLeft={1}>
+              <Button
+                key={a}
+                label={BUTTON_LABEL[a]}
+                variant={a === 'fresh' ? 'primary' : undefined}
+                onPress={() => props.onAction(a)}
+              />
+            </Box>
+          ))}
         </Box>
       )}
     </Box>

@@ -27,6 +27,31 @@ export const LEVEL_COLOR: Record<Level, string> = { healthy: LIME, heavy: AMBER,
 
 const GAP = '   '
 const MIN_TIER = 5
+const MIN_TEXT = 16
+
+export const BUTTON_LABEL: Record<Action, string> = { compact: 'compact', fresh: 'fresh start' }
+
+// Cells the buttons take on the terminal: `[ label ]` and a gap before each.
+export function buttonsWidth(actions: readonly Action[]): number {
+  return actions.reduce((n, a) => n + BUTTON_LABEL[a].length + 5, 0)
+}
+
+function truncate(segments: Segment[], room: number): Segment[] {
+  if (width(segments) <= room) return segments
+  const out: Segment[] = []
+  let left = Math.max(0, room - 1)
+  for (const s of segments) {
+    const chars = [...s.text]
+    if (chars.length <= left) {
+      out.push(s)
+      left -= chars.length
+      continue
+    }
+    out.push({ ...s, text: chars.slice(0, left).join('') + '…' })
+    break
+  }
+  return out
+}
 
 export function width(segments: readonly Segment[]): number {
   return segments.reduce((n, s) => n + [...s.text].length, 0)
@@ -149,5 +174,6 @@ export function line2(m: BandModel, columns: number): Line2 | undefined {
   }
 
   if (segments.length === 1) return undefined
-  return { segments, actions: columns < 40 ? [] : actions }
+  if (columns < 40 || columns - buttonsWidth(actions) < MIN_TEXT) actions = []
+  return { segments: truncate(segments, columns - buttonsWidth(actions)), actions }
 }

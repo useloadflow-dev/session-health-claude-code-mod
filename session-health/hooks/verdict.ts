@@ -73,3 +73,18 @@ function budgetOf(input: VerdictInput, t: Thresholds): Budget | undefined {
   const kind = w === five ? '5h' : 'wk'
   return w.resetsAt === undefined ? { kind, percent: w.percent } : { kind, percent: w.percent, resetsAt: w.resetsAt }
 }
+
+// Where auto-compaction will run: the engine's own threshold, or undefined when it is off.
+export function autoCompactPoint(
+  b: { autoCompactThreshold?: number; isAutoCompactEnabled: boolean } | undefined,
+  window: number,
+): number | undefined {
+  if (!b) return window
+  if (b.autoCompactThreshold !== undefined) return b.autoCompactThreshold
+  return b.isAutoCompactEnabled ? window : undefined
+}
+
+// Only the main conversation's real compactions count toward ⟲.
+export function countsCompaction(e: { trigger: string; agentId?: string }, skipped: boolean): boolean {
+  return e.agentId === undefined && e.trigger !== 'precompute' && !skipped
+}

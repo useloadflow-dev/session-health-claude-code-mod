@@ -6,12 +6,12 @@ export type Snapshot = {
   percent?: number
   tokens?: number
   window: number
-  autoCompactAt: number
+  autoCompactAt?: number
   fiveHour?: Window
   week?: Window
 }
 
-export type HandoffPhase = { phase: Phase; at?: number }
+export type HandoffPhase = { phase: Phase; at?: number; turn?: number }
 export type ToastMemory = { level: Level; budget: Record<string, number> }
 
 declare module 'claude-code' {

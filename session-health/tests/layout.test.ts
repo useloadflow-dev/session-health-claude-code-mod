@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { fitLine1, line1, line2, width, type BandModel } from '../hooks/layout.ts'
+import { buttonsWidth, fitLine1, line1, line2, width, type BandModel } from '../hooks/layout.ts'
 
 const now = Date.parse('2026-10-07T12:00:00Z')
 const full: BandModel = {
@@ -84,4 +84,25 @@ describe('line2', () => {
       .toContain('↪ resumed from hand-off (12m ago)'))
   test('buttons dropped under 40 columns', () =>
     expect(line2({ ...full, level: 'compact' }, 39)!.actions).toEqual([]))
+})
+
+describe('line2 fits its row with buttons (review I-6)', () => {
+  const busy: BandModel = {
+    ...full, level: 'compact', turnsLeft: 3,
+    budget: { kind: '5h', percent: 92, resetsAt: '2026-10-07T12:24:00Z' },
+  }
+  for (const cols of [40, 50, 60, 80, 100, 160]) {
+    test(`text + buttons ≤ ${cols} columns`, () => {
+      const l = line2(busy, cols)!
+      expect(width(l.segments) + buttonsWidth(l.actions)).toBeLessThanOrEqual(cols)
+    })
+  }
+  test('truncated text ends with …', () => {
+    const l = line2(busy, 60)!
+    expect(text(l.segments).endsWith('…')).toBe(true)
+  })
+  test('wide rows keep the whole text', () =>
+    expect(text(line2(busy, 160)!.segments)).toContain('pace yourself'))
+  test('buttons give way when they would leave under 16 cells of text', () =>
+    expect(line2(busy, 40)!.actions).toEqual([]))
 })

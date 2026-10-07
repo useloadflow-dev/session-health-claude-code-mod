@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { DEFAULTS, turnsLeft, verdict } from '../hooks/verdict.ts'
+import { DEFAULTS, autoCompactPoint, countsCompaction, turnsLeft, verdict } from '../hooks/verdict.ts'
 
 const base = { compactions: 0, turns: 10 }
 
@@ -62,4 +62,25 @@ describe('budget overlay', () => {
     expect(v.level).toBe('healthy')
     expect(v.budget?.kind).toBe('5h')
   })
+})
+
+describe('autoCompactPoint (review I-5)', () => {
+  test('reads the engine threshold when given', () =>
+    expect(autoCompactPoint({ autoCompactThreshold: 155_000, isAutoCompactEnabled: true }, 200_000)).toBe(155_000))
+  test('undefined when auto-compact is off', () =>
+    expect(autoCompactPoint({ isAutoCompactEnabled: false }, 200_000)).toBe(undefined))
+  test('falls back to the window when enabled without a threshold', () =>
+    expect(autoCompactPoint({ isAutoCompactEnabled: true }, 200_000)).toBe(200_000))
+  test('falls back to the window with no breakdown', () =>
+    expect(autoCompactPoint(undefined, 200_000)).toBe(200_000))
+})
+
+describe('countsCompaction (review I-4)', () => {
+  test('main-conversation manual/auto/plugin compactions count', () => {
+    for (const trigger of ['manual', 'auto', 'plugin']) expect(countsCompaction({ trigger }, false)).toBe(true)
+  })
+  test('precompute does not count', () => expect(countsCompaction({ trigger: 'precompute' }, false)).toBe(false))
+  test('a skipped compaction does not count', () => expect(countsCompaction({ trigger: 'manual' }, true)).toBe(false))
+  test("a subagent's compaction does not count", () =>
+    expect(countsCompaction({ trigger: 'auto', agentId: 'a1' }, false)).toBe(false))
 })
