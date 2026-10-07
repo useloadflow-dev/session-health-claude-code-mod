@@ -9,7 +9,7 @@ A Claude Code mod that keeps an eye on your session from a band above the prompt
 
 - **Meters** for the context window, the 5-hour session budget and the weekly budget: lime (`#aaff00`), amber from 70%, coral from 90%.
 - **A verdict** — healthy → getting heavy → compact now → start fresh — from context %, turns left until auto-compact, and how often you've compacted. A ⚠ budget warning shows when either budget passes 90%.
-- **`[compact]`** runs a smart compact that keeps your goal, open tasks, decisions and files in play.
+- **`[compact]` / `/smart-compact`** runs a smart compact that keeps your goal, open tasks, decisions and files in play. The command works any time, even when the button isn't showing. In a terminal, reach the button with a click (fullscreen layout) or ctrl+x tab, then Enter.
 - **`[fresh start]` / `/handoff`** writes `.claude/handoff.md` in the background. Run `/clear` and your next prompt arrives with the brief attached, so the new conversation starts already briefed. Each brief loads once, within 24 hours.
 - **Toasts** fire once when the verdict escalates or a budget crosses 75% / 90%.
 

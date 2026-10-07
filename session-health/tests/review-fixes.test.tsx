@@ -12,10 +12,10 @@ const BAND = {
   props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120, scroll: { offset: 0, bodyRows: 9 }, view: {} },
 }
 
-type Host = { store: Map<string, unknown>; files: Map<string, string>; toasts: string[]; turns: { n: number }; completes: string[] }
+type Host = { store: Map<string, unknown>; files: Map<string, string>; toasts: string[]; turns: { n: number }; completes: string[]; commands: string[] }
 
 function host(on: On, opts: { sessionId?: string; store?: Record<string, unknown>; messages?: { role: string; text: string }[] } = {}): Host {
-  const h: Host = { store: new Map(Object.entries(opts.store ?? {})), files: new Map(), toasts: [], turns: { n: 5 }, completes: [] }
+  const h: Host = { store: new Map(Object.entries(opts.store ?? {})), files: new Map(), toasts: [], turns: { n: 5 }, completes: [], commands: [] }
   mock.clock(on)
   on('session.root', () => ({ value: '/proj' }))
   on('session.id', () => ({ value: opts.sessionId ?? 's1' }))
@@ -41,7 +41,10 @@ function host(on: On, opts: { sessionId?: string; store?: Record<string, unknown
     return { value: undefined }
   })
   on('ui.status', () => ({ value: undefined }))
-  on('command.register', () => ({ value: undefined }) as never)
+  on('command.register', (_$, e) => {
+    h.commands.push(e.name)
+    return { value: undefined } as never
+  })
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
@@ -176,4 +179,27 @@ test('a compaction of the main conversation shows as ⟲1 on line 1', async ($, 
   const ui = await $.ui.mount({ plugin: 'session-health', surface: 'terminal', ...BAND })
   expect(await ui.find({ type: 'Text', text: /⟲1/ })).toBeDefined()
   await ui.unmount()
+})
+
+test('/smart-compact is registered for the session', async ($, on) => {
+  const h = host(on)
+  await $.session.start(start)
+  expect(h.commands).toContain('handoff')
+  expect(h.commands).toContain('smart-compact')
+})
+
+test('/smart-compact runs /compact with the smart instructions', async ($, on) => {
+  host(on)
+  const asked: string[] = []
+  on('command.run', { command: 'compact' }, (_$, e) => {
+    asked.push(e.args)
+    return { text: '' }
+  })
+  const r = await $.command.run({ command: 'smart-compact', args: '' } as never)
+  for (let i = 0; i < 20 && asked.length === 0; i++) await tick()
+  expect(asked.length).toBe(1)
+  expect(asked[0]).toContain('Preserve: the current goal')
+  expect(r.text).toContain('Compacting')
+  // Let the detached compaction finish its phase bookkeeping before the test ends.
+  for (let i = 0; i < 10; i++) await tick()
 })

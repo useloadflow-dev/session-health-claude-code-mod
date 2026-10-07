@@ -129,6 +129,7 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'handoff', description: 'Write a hand-off brief for a fresh session' })
+    await $.command.register({ name: 'smart-compact', description: 'Compact, keeping the goal, open tasks, decisions and files in play' })
     // A reload drops whatever compaction or fork was in flight; its phase must not outlive it.
     writing = false
     await update($, handoff, (h): HandoffPhase =>
@@ -148,6 +149,13 @@ export const register: Register = (on, options) => {
         ? 'Hand-off written to .claude/handoff.md — run /clear to start fresh.'
         : 'Hand-off not written (see toast).',
     }
+  })
+
+  on('command.run', { command: 'smart-compact' }, async $ => {
+    if ((await read($, handoff)).phase === 'compacting') return { text: 'A compaction is already running.' }
+    // Not awaited: /compact is queued behind this command and runs once it returns.
+    void compactNow($)
+    return { text: 'Compacting with smart instructions…' }
   })
 
   on('prompt.submit', async ($, e, next) => {
