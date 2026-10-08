@@ -45,6 +45,8 @@ Change these in `/config`:
 
 The SESSION and WEEK meters appear only on a Claude subscription. API-key sessions show the context meter alone.
 
+The SESSION and WEEK meters sync across your open sessions every 15s, so an idle session shows the latest reading any session has seen.
+
 ## Development
 
 ```
