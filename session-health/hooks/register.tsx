@@ -1,10 +1,11 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, Timer } from 'claude-code'
 import type { HandoffPhase, Phase, Snapshot, ToastMemory } from '../types'
 import { Band } from './band.tsx'
 import { fitLine1, line2, type Action, type BandModel } from './layout.ts'
 import { DEFAULTS, autoCompactPoint, countsCompaction, turnsLeft, verdict, type Thresholds } from './verdict.ts'
 import { toastsFor } from './toasts.ts'
+import { BUDGETS_KEY, SYNC_MS, current, isBudgets, newer, sameWindow, type Budgets } from './budgets.ts'
 import {
   COMPACT_INSTRUCTIONS,
   briefPrompt,
@@ -68,25 +69,83 @@ async function autoCompactAt($: $, window: number): Promise<number | undefined> 
   }
 }
 
-async function record($: $, m: Measured) {
+// Set once a response arrives with no rate limits: off a subscription, so other sessions' budgets are not ours.
+let offPlan = false
+
+async function sharedBudgets($: $): Promise<Budgets | undefined> {
+  try {
+    const v = await $.store.get(BUDGETS_KEY)
+    return isBudgets(v) ? v : undefined
+  } catch {
+    return undefined
+  }
+}
+
+// `heard`: the figures come from a response that just arrived, so they are the account's latest.
+async function record($: $, m: Measured, heard: boolean) {
   const win = (kind: string) => {
     const r = m.rateLimits.find(x => x.kind === kind)
     if (!r) return undefined
     return r.resetsAt === undefined ? { percent: r.percentUsed } : { percent: r.percentUsed, resetsAt: r.resetsAt }
   }
+  const now = await $.clock.now()
   const snap: Snapshot = { window: m.context.window }
   const at = await autoCompactAt($, m.context.window)
   if (at !== undefined) snap.autoCompactAt = at
   if (m.context.percent !== undefined) snap.percent = m.context.percent
   if (m.context.tokens !== undefined) snap.tokens = m.context.tokens
+
+  let own: Budgets | undefined
   const five = win('five_hour')
   const week = win('seven_day')
-  if (five) snap.fiveHour = five
-  if (week) snap.week = week
+  if (five || week) {
+    own = { at: heard ? now : 0 }
+    if (five) own.fiveHour = five
+    if (week) own.week = week
+    offPlan = false
+  } else if (heard && m.context.tokens !== undefined) {
+    offPlan = true
+  }
+  const shared = offPlan ? undefined : await sharedBudgets($)
+  const shown = newer(own, shared)
+  if (shown) {
+    const b = current(shown, now)
+    if (b.fiveHour) snap.fiveHour = b.fiveHour
+    if (b.week) snap.week = b.week
+    snap.budgetsAt = b.at
+    if (own && heard && shown === own) {
+      try {
+        await $.store.set(BUDGETS_KEY, own)
+      } catch {}
+    }
+  }
   await update($, snapshot, () => snap)
   const n = await $.session.turns()
   await update($, turns, () => n)
 }
+
+// Picks up a reading another session heard more recently, and empties windows that have reset.
+async function sync($: $, t: Thresholds) {
+  if (offPlan) return
+  const now = await $.clock.now()
+  const snap = await read($, snapshot)
+  const mine: Budgets = { at: snap?.budgetsAt ?? 0 }
+  if (snap?.fiveHour) mine.fiveHour = snap.fiveHour
+  if (snap?.week) mine.week = snap.week
+  const b = current(newer(mine, await sharedBudgets($)) ?? mine, now)
+  if (b.at === mine.at && sameWindow(b.fiveHour, mine.fiveHour) && sameWindow(b.week, mine.week)) return
+  await update($, snapshot, s => {
+    const next: Snapshot = { ...(s ?? { window: 0 }), budgetsAt: b.at }
+    delete next.fiveHour
+    delete next.week
+    if (b.fiveHour) next.fiveHour = b.fiveHour
+    if (b.week) next.week = b.week
+    return next
+  })
+  await notify($, t)
+}
+
+let ticker: Timer | undefined
 
 async function notify($: $, t: Thresholds) {
   const m = await modelOf($, t)
@@ -136,8 +195,12 @@ export const register: Register = (on, options) => {
       h.phase === 'writing' || h.phase === 'compacting' ? { phase: 'idle' } : h,
     )
     try {
-      await record($, await $.session.usage())
+      await record($, await $.session.usage(), false)
     } catch {}
+    ticker?.cancel()
+    ticker = $.clock.every(SYNC_MS, () => {
+      void sync($, t).catch(() => {})
+    })
     return next(e)
   })
 
@@ -169,7 +232,7 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('session.measure', async ($, e, next) => {
-    await record($, e)
+    await record($, e, e.rateLimits.length > 0)
     const tokens = e.context.tokens
     if (tokens !== undefined) {
       await update($, history, h => (h[h.length - 1] === tokens ? h : [...h, tokens].slice(-8)))
@@ -199,6 +262,7 @@ export const register: Register = (on, options) => {
         const kept: Snapshot = { window: s.window }
         if (s.fiveHour) kept.fiveHour = s.fiveHour
         if (s.week) kept.week = s.week
+        if (s.budgetsAt !== undefined) kept.budgetsAt = s.budgetsAt
         return kept
       })
       await update($, turns, () => 0)

@@ -9,6 +9,8 @@ export type Snapshot = {
   autoCompactAt?: number
   fiveHour?: Window
   week?: Window
+  // When the budgets shown were heard, in ms; 0 when their age is unknown.
+  budgetsAt?: number
 }
 
 export type HandoffPhase = { phase: Phase; at?: number; turn?: number }
