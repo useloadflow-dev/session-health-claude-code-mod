@@ -9,6 +9,11 @@
       "name": "session-health",
       "source": "./session-health",
       "description": "Context, 5-hour and weekly usage meters above the prompt, with compact / fresh-start advice and auto-loading hand-offs."
+    },
+    {
+      "name": "vibe-guard",
+      "source": "./vibe-guard",
+      "description": "Companion to vibe-wise: offers learning mode once per project, holds Claude's edits while a checkpoint waits on you, and shows where you are."
     }
   ]
 }

@@ -1,0 +1,9 @@
+{
+  "name": "vibe-guard",
+  "version": "0.1.0",
+  "description": "Companion to vibe-wise: offers learning mode once per project, holds Claude's edits while a checkpoint waits on you, and shows where you are.",
+  "author": {
+    "name": "Jack Halperin"
+  },
+  "license": "MIT"
+}
