@@ -5,6 +5,7 @@ import { Band } from './band.tsx'
 import { fitLine1, line2, type Action, type BandModel } from './layout.ts'
 import { DEFAULTS, autoCompactPoint, countsCompaction, turnsLeft, verdict, type Thresholds } from './verdict.ts'
 import { toastsFor } from './toasts.ts'
+import { TALLY_KEY, countOf, isTally, put } from './tally.ts'
 import { BUDGETS_KEY, SYNC_MS, current, isBudgets, newer, sameWindow, type Budgets } from './budgets.ts'
 import {
   COMPACT_INSTRUCTIONS,
@@ -29,6 +30,35 @@ const toasted = atom({ plugin: 'session-health', key: 'toasted' } as const, { le
 const handoffRef = { plugin: 'session-health', key: 'handoff' } as const
 
 const STALE_MS = 5 * 60 * 1000
+
+// The session whose compactions the atom holds; unset at load and after /clear or /resume.
+let countedFor: string | undefined
+
+async function tally($: $) {
+  const v = await $.store.get(TALLY_KEY)
+  return isTally(v) ? v : undefined
+}
+
+// Loads the session's stored count when it is new to us: a fresh process, a reload, or
+// the conversation /clear or /resume switched to. A reload's atom may be ahead of the store.
+async function adoptSession($: $) {
+  try {
+    const id = await $.session.id()
+    if (id === countedFor) return
+    const stored = countOf(await tally($), id)
+    await update($, compactions, n => Math.max(n, stored))
+    countedFor = id
+  } catch {}
+}
+
+async function recordCompaction($: $) {
+  try {
+    const id = await $.session.id()
+    const count = await read($, compactions)
+    await $.store.set(TALLY_KEY, put(await tally($), id, count, await $.clock.now()))
+    countedFor = id
+  } catch {}
+}
 const READY_TURNS = 3
 
 const setPhase = ($: $, phase: Phase, at?: number) =>
@@ -177,6 +207,7 @@ async function modelOf($: $, t: Thresholds): Promise<BandModel> {
     week: snap?.week,
     level: v.level,
     budget: v.budget,
+    nudge: v.nudge === true,
     phase: ho.phase,
     phaseAt: ho.at,
     now,
@@ -197,6 +228,7 @@ export const register: Register = (on, options) => {
     try {
       await record($, await $.session.usage(), false)
     } catch {}
+    await adoptSession($)
     ticker?.cancel()
     ticker = $.clock.every(SYNC_MS, () => {
       void sync($, t).catch(() => {})
@@ -232,6 +264,7 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('session.measure', async ($, e, next) => {
+    await adoptSession($)
     await record($, e, e.rateLimits.length > 0)
     const tokens = e.context.tokens
     if (tokens !== undefined) {
@@ -250,6 +283,7 @@ export const register: Register = (on, options) => {
     if (countsCompaction(e, Boolean(r.skip))) {
       await update($, compactions, n => n + 1)
       await update($, history, () => [])
+      await recordCompaction($)
     }
     return r
   }).catch(($, e, next) => next(e))
@@ -267,6 +301,7 @@ export const register: Register = (on, options) => {
       })
       await update($, turns, () => 0)
       await update($, compactions, () => 0)
+      countedFor = undefined
       await update($, history, () => [])
       await update($, toasted, () => ({ level: 'healthy', budget: {} }))
       await endPhase($, 'ready')

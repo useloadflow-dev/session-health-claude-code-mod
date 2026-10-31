@@ -13,6 +13,7 @@ export type BandModel = {
   week?: Window
   level: Level
   budget?: Budget
+  nudge?: boolean
   phase: Phase
   phaseAt?: number
   now: number
@@ -133,7 +134,9 @@ function verdictText(m: BandModel): string | undefined {
   const turns = m.turnsLeft === undefined ? '' : ` (~${m.turnsLeft} turns left)`
   switch (m.level) {
     case 'heavy':
-      return `◐ getting heavy — /compact at a natural break${turns}`
+      return m.nudge
+        ? `◐ getting heavy — compacted ${m.compactions}× already, a fresh start beats another compact${turns}`
+        : `◐ getting heavy — /compact at a natural break${turns}`
     case 'compact':
       return m.turnsLeft === undefined
         ? '◑ compact now — context is filling up'
@@ -141,7 +144,7 @@ function verdictText(m: BandModel): string | undefined {
     case 'fresh':
       return `✦ start fresh — compacted ${m.compactions}× already, quality drops`
     case 'healthy':
-      return undefined
+      return m.nudge ? `✦ compacted ${m.compactions}× — consider a fresh start at a natural break` : undefined
   }
 }
 
@@ -159,8 +162,10 @@ export function line2(m: BandModel, columns: number): Line2 | undefined {
     segments.push({ text: `↪ resumed from hand-off (${ago(m)} ago)`, color: LIME })
   } else {
     const v = verdictText(m)
-    if (v !== undefined) segments.push({ text: v, color: LEVEL_COLOR[m.level], bold: m.level !== 'heavy' })
-    if (m.level === 'heavy') actions = ['compact']
+    if (m.level === 'healthy' && v !== undefined) segments.push({ text: v, dim: true })
+    else if (v !== undefined) segments.push({ text: v, color: LEVEL_COLOR[m.level], bold: m.level !== 'heavy' })
+    if (m.level === 'healthy' && m.nudge) actions = ['fresh']
+    if (m.level === 'heavy') actions = m.nudge ? ['compact', 'fresh'] : ['compact']
     if (m.level === 'compact') actions = ['compact', 'fresh']
     if (m.level === 'fresh') actions = ['fresh']
   }
