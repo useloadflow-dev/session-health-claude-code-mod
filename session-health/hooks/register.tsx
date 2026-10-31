@@ -5,7 +5,7 @@ import { Band } from './band.tsx'
 import { fitLine1, line2, type Action, type BandModel } from './layout.ts'
 import { DEFAULTS, autoCompactPoint, countsCompaction, turnsLeft, verdict, type Thresholds } from './verdict.ts'
 import { toastsFor } from './toasts.ts'
-import { TALLY_KEY, bump, countOf, isTally } from './tally.ts'
+import { TALLY_KEY, countOf, isTally, put } from './tally.ts'
 import { BUDGETS_KEY, SYNC_MS, current, isBudgets, newer, sameWindow, type Budgets } from './budgets.ts'
 import {
   COMPACT_INSTRUCTIONS,
@@ -54,7 +54,8 @@ async function adoptSession($: $) {
 async function recordCompaction($: $) {
   try {
     const id = await $.session.id()
-    await $.store.set(TALLY_KEY, bump(await tally($), id, await $.clock.now()))
+    const count = await read($, compactions)
+    await $.store.set(TALLY_KEY, put(await tally($), id, count, await $.clock.now()))
     countedFor = id
   } catch {}
 }

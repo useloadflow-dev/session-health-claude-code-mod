@@ -18,9 +18,10 @@ export function countOf(t: Tally | undefined, sessionId: string): number {
   return t?.[sessionId]?.count ?? 0
 }
 
-// One more compaction for `sessionId`; only the TALLY_MAX most recent sessions are kept.
-export function bump(t: Tally | undefined, sessionId: string, now: number): Tally {
-  const next: Tally = { ...t, [sessionId]: { count: countOf(t, sessionId) + 1, at: now } }
+// Records `count` compactions for `sessionId`; only the TALLY_MAX most recent sessions are kept.
+// The caller passes the live count, so a store that fell behind catches up on the next write.
+export function put(t: Tally | undefined, sessionId: string, count: number, now: number): Tally {
+  const next: Tally = { ...t, [sessionId]: { count, at: now } }
   const ids = Object.keys(next)
   if (ids.length <= TALLY_MAX) return next
   const keep = new Set(ids.sort((a, b) => next[b]!.at - next[a]!.at).slice(0, TALLY_MAX))

@@ -12,10 +12,10 @@ const BAND = {
   props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120, scroll: { offset: 0, bodyRows: 9 }, view: {} },
 }
 
-type Host = { store: Map<string, unknown>; files: Map<string, string>; toasts: string[]; turns: { n: number }; completes: string[]; commands: string[]; id: { v: string } }
+type Host = { store: Map<string, unknown>; files: Map<string, string>; toasts: string[]; turns: { n: number }; completes: string[]; commands: string[]; id: { v: string }; failSets: { n: number } }
 
 function host(on: On, opts: { sessionId?: string; store?: Record<string, unknown>; messages?: { role: string; text: string }[] } = {}): Host {
-  const h: Host = { store: new Map(Object.entries(opts.store ?? {})), files: new Map(), toasts: [], turns: { n: 5 }, completes: [], commands: [], id: { v: opts.sessionId ?? 's1' } }
+  const h: Host = { store: new Map(Object.entries(opts.store ?? {})), files: new Map(), toasts: [], turns: { n: 5 }, completes: [], commands: [], id: { v: opts.sessionId ?? 's1' }, failSets: { n: 0 } }
   mock.clock(on)
   on('session.root', () => ({ value: '/proj' }))
   on('session.id', () => ({ value: h.id.v }))
@@ -29,6 +29,10 @@ function host(on: On, opts: { sessionId?: string; store?: Record<string, unknown
   })
   on('store.get', (_$, e) => ({ value: h.store.get(e.key) }))
   on('store.set', (_$, e) => {
+    if (h.failSets.n > 0) {
+      h.failSets.n--
+      throw new Error('store unavailable')
+    }
     h.store.set(e.key, e.value)
     return { value: undefined }
   })
@@ -244,4 +248,15 @@ test('/clear starts the new conversation at 0; /resume back restores its count',
   ui = await $.ui.mount({ plugin: 'session-health', surface: 'terminal', ...BAND })
   expect(await ui.find({ type: 'Text', text: /⟲1/ })).toBeDefined()
   await ui.unmount()
+})
+
+test('a failed store write is made good by the next compaction', async ($, on) => {
+  const h = host(on)
+  on('session.compact', () => ({ messages: SUMMARY }))
+  await $.session.measure(measure(30, 60_000))
+  h.failSets.n = 1
+  await $.session.compact({ trigger: 'manual', messages: SUMMARY } as never)
+  expect(h.store.get('compactions')).toBe(undefined)
+  await $.session.compact({ trigger: 'manual', messages: SUMMARY } as never)
+  expect((h.store.get('compactions') as Record<string, { count: number }>).s1!.count).toBe(2)
 })
