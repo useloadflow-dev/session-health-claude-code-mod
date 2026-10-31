@@ -11,6 +11,7 @@ A Claude Code mod that keeps an eye on your session from a band above the prompt
 - **A verdict** — healthy → getting heavy → compact now → start fresh — from context %, turns left until auto-compact, and how often you've compacted. A ⚠ budget warning shows when either budget passes 90%.
 - **`[compact]` / `/smart-compact`** runs a smart compact that keeps your goal, open tasks, decisions and files in play. The command works any time, even when the button isn't showing. In a terminal, click the button (fullscreen layout) or press ctrl+x tab to focus the band, then `c`.
 - **`[fresh start]` / `/handoff`** writes `.claude/handoff.md` in the background. Run `/clear` and your next prompt arrives with the brief attached, so the new conversation starts already briefed. Each brief loads once, within 24 hours. With the band focused (ctrl+x tab), `f` presses `[fresh start]`.
+- **Compaction count** (`⟲N`) is kept per session in the mod's store, so quitting and `claude --resume`, or `/resume` back to an older conversation, keeps its count. `/clear` starts the new conversation at 0. Once a session has compacted `freshCompactions` times, the band shows a gentle `✦ compacted N× — consider a fresh start` hint even while context is light. Anthropic's docs give no recommended number of compactions; the default of 2 is this mod's own choice, based on each summary losing detail from the one before.
 - **Toasts** fire once when the verdict escalates or a budget crosses 75% / 90%.
 
 The band shrinks gracefully on narrow terminals, down to `58% · 31% · 64% ●`.
@@ -39,7 +40,7 @@ Change these in `/config`:
 | `compactPct` | 60 | Context % that says "compact now" |
 | `heavyTurns` | 8 | Turns left before auto-compact that count as "getting heavy" |
 | `compactTurns` | 4 | Turns left before auto-compact that say "compact now" |
-| `freshCompactions` | 2 | Compactions after which a heavy session should start fresh |
+| `freshCompactions` | 2 | Compactions after which the band suggests a fresh start: a dim hint while context is light, "start fresh" once it fills up |
 | `freshTurns` | 150 | Turns after which a heavy session should start fresh |
 | `budgetWarnPct` | 90 | 5-hour / weekly % that shows the budget warning |
 

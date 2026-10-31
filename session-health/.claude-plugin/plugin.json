@@ -37,7 +37,7 @@
     "freshCompactions": {
       "type": "number",
       "title": "Start-fresh after N compactions",
-      "description": "Compactions after which a heavy session should start fresh",
+      "description": "Compactions after which the band suggests a fresh start: a gentle hint while context is light, a firm one once it fills up",
       "default": 2
     },
     "freshTurns": {

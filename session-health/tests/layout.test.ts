@@ -73,6 +73,27 @@ describe('line2', () => {
     expect(text(l.segments)).toContain('compacted 2×')
     expect(l.actions).toEqual(['fresh'])
   })
+  test('a healthy nudge is a dim hint with [fresh start]', () => {
+    const l = line2({ ...full, compactions: 2, nudge: true }, 120)!
+    expect(text(l.segments)).toContain('compacted 2×')
+    expect(text(l.segments)).toContain('fresh start')
+    expect(l.segments.find(s => s.text.includes('compacted'))?.dim).toBe(true)
+    expect(l.actions).toEqual(['fresh'])
+  })
+  test('a heavy nudge suggests fresh over another compact and offers both', () => {
+    const l = line2({ ...full, level: 'heavy', compactions: 2, nudge: true }, 120)!
+    expect(text(l.segments)).toContain('getting heavy')
+    expect(text(l.segments)).toContain('compacted 2×')
+    expect(l.actions).toEqual(['compact', 'fresh'])
+  })
+  test('the nudge waits while a hand-off is being written', () =>
+    expect(text(line2({ ...full, compactions: 2, nudge: true, phase: 'writing' }, 120)!.segments))
+      .not.toContain('compacted'))
+  test('the nudge sits beside a budget warning', () => {
+    const l = line2({ ...full, compactions: 2, nudge: true, budget: { kind: 'wk', percent: 93 } }, 200)!
+    expect(text(l.segments)).toContain('compacted 2×')
+    expect(text(l.segments)).toContain('⚠ wk budget 93%')
+  })
   test('budget overlays a healthy verdict', () => {
     const l = line2({ ...full, budget: { kind: '5h', percent: 92, resetsAt: '2026-10-07T12:24:00Z' } }, 120)!
     expect(text(l.segments)).toContain('⚠ 5h budget 92% — resets in 24m, pace yourself')

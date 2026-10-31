@@ -34,7 +34,9 @@ export type VerdictInput = {
   week?: Window
 }
 
-export type Verdict = { level: Level; budget?: Budget }
+// `nudge`: compacted freshCompactions times but not yet compact-worthy, so the
+// band can hint at a fresh start before the context fills up again.
+export type Verdict = { level: Level; budget?: Budget; nudge?: true }
 
 export function turnsLeft(history: readonly number[], autoCompactAt: number): number | undefined {
   if (history.length < 2) return undefined
@@ -60,7 +62,9 @@ export function verdict(input: VerdictInput, t: Thresholds = DEFAULTS): Verdict 
 
   const level: Level = compactWorthy ? (worn ? 'fresh' : 'compact') : heavy ? 'heavy' : 'healthy'
   const budget = budgetOf(input, t)
-  return budget ? { level, budget } : { level }
+  const v: Verdict = budget ? { level, budget } : { level }
+  if (!compactWorthy && input.compactions >= t.freshCompactions) v.nudge = true
+  return v
 }
 
 function budgetOf(input: VerdictInput, t: Thresholds): Budget | undefined {

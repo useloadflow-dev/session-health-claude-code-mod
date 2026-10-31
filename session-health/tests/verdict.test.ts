@@ -47,6 +47,30 @@ describe('verdict levels', () => {
     expect(verdict({ ...base, percent: 50 }, { ...DEFAULTS, compactPct: 50 }).level).toBe('compact'))
 })
 
+describe('start-fresh nudge below compact-worthy', () => {
+  test('nudges a light session compacted freshCompactions times', () => {
+    const v = verdict({ ...base, percent: 30, compactions: 2 })
+    expect(v.level).toBe('healthy')
+    expect(v.nudge).toBe(true)
+  })
+  test('nudges a heavy session too', () => {
+    const v = verdict({ ...base, percent: 50, compactions: 3 })
+    expect(v.level).toBe('heavy')
+    expect(v.nudge).toBe(true)
+  })
+  test('no nudge below freshCompactions', () =>
+    expect(verdict({ ...base, percent: 30, compactions: 1 }).nudge).toBe(undefined))
+  test('no nudge once compact-worthy: the fresh level says it louder', () => {
+    const v = verdict({ ...base, percent: 61, compactions: 2 })
+    expect(v.level).toBe('fresh')
+    expect(v.nudge).toBe(undefined)
+  })
+  test('turns alone do not nudge', () =>
+    expect(verdict({ ...base, percent: 30, turns: 200 }).nudge).toBe(undefined))
+  test('honours a custom freshCompactions', () =>
+    expect(verdict({ ...base, percent: 30, compactions: 1 }, { ...DEFAULTS, freshCompactions: 1 }).nudge).toBe(true))
+})
+
 describe('budget overlay', () => {
   test('none when rate limits are absent', () =>
     expect(verdict({ ...base, percent: 10 }).budget).toBe(undefined))

@@ -12,13 +12,13 @@ const BAND = {
   props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120, scroll: { offset: 0, bodyRows: 9 }, view: {} },
 }
 
-type Host = { store: Map<string, unknown>; files: Map<string, string>; toasts: string[]; turns: { n: number }; completes: string[]; commands: string[] }
+type Host = { store: Map<string, unknown>; files: Map<string, string>; toasts: string[]; turns: { n: number }; completes: string[]; commands: string[]; id: { v: string } }
 
 function host(on: On, opts: { sessionId?: string; store?: Record<string, unknown>; messages?: { role: string; text: string }[] } = {}): Host {
-  const h: Host = { store: new Map(Object.entries(opts.store ?? {})), files: new Map(), toasts: [], turns: { n: 5 }, completes: [], commands: [] }
+  const h: Host = { store: new Map(Object.entries(opts.store ?? {})), files: new Map(), toasts: [], turns: { n: 5 }, completes: [], commands: [], id: { v: opts.sessionId ?? 's1' } }
   mock.clock(on)
   on('session.root', () => ({ value: '/proj' }))
-  on('session.id', () => ({ value: opts.sessionId ?? 's1' }))
+  on('session.id', () => ({ value: h.id.v }))
   on('session.turns', () => ({ value: h.turns.n }))
   on('session.model', () => ({ value: 'claude-test' }))
   on('session.messages', () => ({ value: opts.messages ?? [] }) as never)
@@ -202,4 +202,46 @@ test('/smart-compact runs /compact with the smart instructions', async ($, on) =
   expect(r.text).toContain('Compacting')
   // Let the detached compaction finish its phase bookkeeping before the test ends.
   for (let i = 0; i < 10; i++) await tick()
+})
+
+const SUMMARY = [{ role: 'user', text: 'summary', toolUses: [] }] as never
+
+test('each compaction is recorded under the session id in the store', async ($, on) => {
+  const h = host(on)
+  on('session.compact', () => ({ messages: SUMMARY }))
+  await $.session.measure(measure(30, 60_000))
+  await $.session.compact({ trigger: 'manual', messages: SUMMARY } as never)
+  await $.session.compact({ trigger: 'auto', messages: SUMMARY } as never)
+  expect((h.store.get('compactions') as Record<string, { count: number }>).s1!.count).toBe(2)
+})
+
+test('a session resumed in a new process picks its count back up', async ($, on) => {
+  host(on, { store: { compactions: { s1: { count: 3, at: 1 } } } })
+  await $.session.start({ cwd: '/proj', source: 'resume' } as never)
+  await $.session.measure(measure(30, 60_000))
+  const ui = await $.ui.mount({ plugin: 'session-health', surface: 'terminal', ...BAND })
+  expect(await ui.find({ type: 'Text', text: /⟲3/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /compacted 3×/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('/clear starts the new conversation at 0; /resume back restores its count', async ($, on) => {
+  const h = host(on)
+  on('session.compact', () => ({ messages: SUMMARY }))
+  await $.session.measure(measure(30, 60_000))
+  await $.session.compact({ trigger: 'manual', messages: SUMMARY } as never)
+
+  await $.session.end(clear)
+  h.id.v = 's2'
+  await $.session.measure(measure(10, 20_000))
+  let ui = await $.ui.mount({ plugin: 'session-health', surface: 'terminal', ...BAND })
+  expect(await ui.find({ type: 'Text', text: /⟲/ })).toBe(undefined)
+  await ui.unmount()
+
+  await $.session.end({ reason: 'resume', sessionId: 's2', resume: {} } as never)
+  h.id.v = 's1'
+  await $.session.measure(measure(30, 60_000))
+  ui = await $.ui.mount({ plugin: 'session-health', surface: 'terminal', ...BAND })
+  expect(await ui.find({ type: 'Text', text: /⟲1/ })).toBeDefined()
+  await ui.unmount()
 })
