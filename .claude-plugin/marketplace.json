@@ -14,6 +14,11 @@
       "name": "vibe-guard",
       "source": "./vibe-guard",
       "description": "Companion to vibe-wise: offers learning mode once per project, holds Claude's edits while a checkpoint waits on you, and shows where you are."
+    },
+    {
+      "name": "arch-map",
+      "source": "./arch-map",
+      "description": "A side pane that draws the architecture of what you're building, version by version, with changes highlighted, a design lesson, and click-to-explain parts."
     }
   ]
 }

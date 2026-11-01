@@ -1,0 +1,10 @@
+{
+  "name": "arch-map",
+  "version": "0.3.0",
+  "description": "A side pane that draws the architecture of what you're building, version by version: what changed and why, a request traced through it, a design lesson, and click-to-explain parts.",
+  "author": {
+    "name": "Jack Halperin"
+  },
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

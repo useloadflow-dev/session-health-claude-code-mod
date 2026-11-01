@@ -48,6 +48,11 @@ The SESSION and WEEK meters appear only on a Claude subscription. API-key sessio
 
 The SESSION and WEEK meters sync across your open sessions every 15s, so an idle session shows the latest reading any session has seen.
 
+## More mods in this marketplace
+
+- **[arch-map](arch-map/README.md)**: a side pane that draws the architecture of what you're building, with version history, changes highlighted, a design lesson per change, and click-to-explain parts. `/plugin install arch-map --marketplace useloadflow-dev/session-health-claude-code-mod`
+- **[vibe-guard](vibe-guard/README.md)**: a companion to the vibe-wise learning plugin.
+
 ## Development
 
 ```
