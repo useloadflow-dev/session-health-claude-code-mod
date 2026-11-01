@@ -1,7 +1,16 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { ArchEdge, ArchNode, Diagram, Explanation, NodeKind, ProjectRecord } from '../types'
+import type {
+  ArchEdge,
+  ArchNode,
+  ArchRisk,
+  Diagram,
+  Explanation,
+  NodeKind,
+  ProjectRecord,
+  RiskSeverity,
+} from '../types'
 
 const PANE = 'arch-map'
 const TITLE = 'Architecture'
@@ -68,6 +77,11 @@ const ADDED = 'success'
 const CHANGED = 'warning'
 const REMOVED = 'error'
 
+const SEVERITIES: readonly RiskSeverity[] = ['low', 'medium', 'high']
+const RISK_COLOR: Record<RiskSeverity, string> = { high: 'error', medium: 'warning', low: 'subtle' }
+/** Risks kept per version. */
+const MAX_RISKS = 8
+
 const GUIDE = `# Architecture map (arch-map mod)
 The person is teaching themselves system design. A side pane shows a diagram of what is being built in this project, fed only by the ${FULL_TOOL} tool. Past versions are kept, and the pane highlights what each version added, changed or removed.
 - When the work involves building or changing a system (an app, service, script with moving parts, pipeline, integration), call ${FULL_TOOL} once the shape is known, and again whenever a component or connection is added, removed or changes role. Skip it for trivial edits, pure Q&A, or when nothing architectural changed.
@@ -77,6 +91,7 @@ The person is teaching themselves system design. A side pane shows a diagram of 
 - why: one sentence naming what changed since the last version and the problem it solves ("Added Redis because product pages hit Postgres on every request"). Leave it out on a first diagram.
 - flow: 3-7 steps tracing one real request or job end to end.
 - lesson: one design concept the latest change illustrates (e.g. "Separation of concerns", "Caching", "Async work via a queue", "Stateless servers"), explained in 2-3 plain sentences tied to this project.
+- risks: security risks the design itself shows, each pinned to a node id, an edge as "from->to", or no target for the whole system. Only flag what this diagram actually implies (an unauthenticated public endpoint, secrets shipped to a client, user input reaching SQL or a shell, sensitive data sent to an external service, a database reachable from outside, a missing trust boundary), with a one-line fix. Skip generic advice; leave risks out when there are none. Carry a risk forward until a change fixes it, and drop it in the version that does (say so in why).
 - Mention the update in one short line at most; don't repeat the diagram in chat.`
 
 const SCHEMA = {
@@ -132,6 +147,23 @@ const SCHEMA = {
       },
       required: ['concept', 'explanation'],
     },
+    risks: {
+      type: 'array',
+      description: `Design-level security risks this diagram shows, at most ${MAX_RISKS}. Omit when there are none.`,
+      items: {
+        type: 'object',
+        properties: {
+          target: {
+            type: 'string',
+            description: 'A node id, or an edge as "from->to". Omit for a system-wide risk.',
+          },
+          severity: { type: 'string', enum: SEVERITIES },
+          issue: { type: 'string', description: 'What could go wrong, one sentence.' },
+          fix: { type: 'string', description: 'The usual fix, one short sentence.' },
+        },
+        required: ['severity', 'issue'],
+      },
+    },
   },
   required: ['title', 'nodes', 'edges'],
 }
@@ -178,6 +210,22 @@ export function parseDiagram(
   const concept = str(l.concept, 60)
   const explanation = str(l.explanation, 500)
 
+  const edgeKeys = new Set(edges.map(edgeKey))
+  const risks: ArchRisk[] = []
+  for (const raw of Array.isArray(input.risks) ? input.risks.slice(0, MAX_RISKS) : []) {
+    const r = (raw ?? {}) as Record<string, unknown>
+    const issue = str(r.issue, 200)
+    if (!issue) continue
+    // "web -> api" and "web->api" name the same edge.
+    const target = str(r.target, 90)?.replace(/\s*->\s*/, '->')
+    if (target && !ids.has(target) && !edgeKeys.has(target))
+      return `risk target "${target}" is neither a node id nor an edge "from->to" in this diagram.`
+    const severity = SEVERITIES.includes(r.severity as RiskSeverity)
+      ? (r.severity as RiskSeverity)
+      : 'medium'
+    risks.push({ target, severity, issue, fix: str(r.fix, 160) })
+  }
+
   return {
     title,
     summary: str(input.summary, 240),
@@ -186,6 +234,7 @@ export function parseDiagram(
     edges,
     flow: flow && flow.length > 0 ? flow : undefined,
     lesson: concept && explanation ? { concept, explanation } : undefined,
+    risks: risks.length > 0 ? risks : undefined,
     version,
   }
 }
@@ -306,7 +355,7 @@ export const register: Register = on => {
     await $.tool.register({
       name: TOOL,
       description:
-        "Redraw the architecture diagram in the person's side pane: the components of what is being built in this project, how they connect, what changed and why, one request traced through them, and one design lesson. Each call replaces the whole diagram and adds a version to the history.",
+        "Redraw the architecture diagram in the person's side pane: the components of what is being built in this project, how they connect, what changed and why, one request traced through them, one design lesson, and any security risks the design shows. Each call replaces the whole diagram and adds a version to the history.",
       inputSchema: SCHEMA,
       isDeferred: false,
     })
@@ -402,8 +451,10 @@ export const register: Register = on => {
     const changes = last
       ? ` Since v${last.version}: ${count('added')} added, ${count('changed')} changed, ${d.removedNodes.length} removed components.`
       : ''
+    const nRisks = parsed.risks?.length ?? 0
+    const risky = nRisks > 0 ? ` ${nRisks} security risk${nRisks === 1 ? '' : 's'} flagged.` : ''
     return {
-      result: `Diagram v${parsed.version} drawn: ${parsed.nodes.length} components, ${parsed.edges.length} connections.${changes}`,
+      result: `Diagram v${parsed.version} drawn: ${parsed.nodes.length} components, ${parsed.edges.length} connections.${changes}${risky}`,
     }
   }).catch(() => ({ result: 'Diagram not updated: the arch-map mod failed.', isError: true }))
 
@@ -488,14 +539,31 @@ export const register: Register = on => {
       !!prev &&
       (ch.nodes.size > 0 || ch.edges.size > 0 || ch.removedNodes.length > 0 || ch.removedEdges.length > 0)
 
+    // The worst risk on each node or edge, for its marker in the diagram.
+    const rank = (s: RiskSeverity) => SEVERITIES.indexOf(s)
+    const worst = new Map<string, RiskSeverity>()
+    for (const r of d.risks ?? []) {
+      if (!r.target) continue
+      const cur = worst.get(r.target)
+      if (!cur || rank(r.severity) > rank(cur)) worst.set(r.target, r.severity)
+    }
+    const risks = [...(d.risks ?? [])].sort((a, b) => rank(b.severity) - rank(a.severity))
+    const targetName = (t: string | undefined) => {
+      if (!t) return 'Whole system'
+      const [from, to] = t.split('->')
+      return to === undefined ? name(t) : `${name(from!)} → ${name(to)}`
+    }
+
     const edgeRow = (x: ArchEdge, glyph: string) => {
       const m = ch.edges.get(edgeKey(x))
+      const r = worst.get(edgeKey(x))
       return (
-        <Text color={markColor(m)} dimColor={!m} wrap="wrap">
+        <Text color={markColor(m)} dimColor={!m && !r} wrap="wrap">
           {`  ${glyph} `}
           {markGlyph(m)}
           {name(x.from)} → {name(x.to)}
           {x.label ? `: ${x.label}` : ''}
+          {r && <Text color={RISK_COLOR[r]}> ⚠</Text>}
         </Text>
       )
     }
@@ -574,6 +642,9 @@ export const register: Register = on => {
                           {STYLE[n.kind].tag}
                           {n.note ? ` · ${n.note}` : ''}
                         </Text>
+                        {worst.has(n.id) && (
+                          <Text color={RISK_COLOR[worst.get(n.id)!]}>⚠ {worst.get(n.id)} risk</Text>
+                        )}
                       </Box>
                     )
                   })}
@@ -639,6 +710,29 @@ export const register: Register = on => {
               Concept: {d.lesson.concept}
             </Text>
             <Text wrap="wrap">{d.lesson.explanation}</Text>
+          </Box>
+        )}
+
+        {risks.length > 0 && (
+          <Box flexDirection="column" borderStyle="single" borderColor={RISK_COLOR[risks[0]!.severity]} paddingX={1}>
+            <Text color={RISK_COLOR[risks[0]!.severity]} weight="semibold">
+              Security risks (design level)
+            </Text>
+            {risks.map(r => (
+              <Box flexDirection="column">
+                <Text color={RISK_COLOR[r.severity]} wrap="wrap">
+                  ⚠ {r.severity.toUpperCase()} · {targetName(r.target)}: {r.issue}
+                </Text>
+                {r.fix && (
+                  <Text dimColor wrap="wrap">
+                    {'  '}Fix: {r.fix}
+                  </Text>
+                )}
+              </Box>
+            ))}
+            <Text dimColor wrap="wrap">
+              Read off the diagram, not the code. /security-review checks the code itself.
+            </Text>
           </Box>
         )}
 

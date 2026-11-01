@@ -13,6 +13,17 @@ export type NodeKind =
 export type ArchNode = { id: string; label: string; kind: NodeKind; note?: string }
 export type ArchEdge = { from: string; to: string; label?: string }
 
+export type RiskSeverity = 'low' | 'medium' | 'high'
+
+/** A design-level security risk, read off the diagram rather than the code. */
+export type ArchRisk = {
+  /** A node id, an edge as `from->to`, or unset for the whole system. */
+  target?: string
+  severity: RiskSeverity
+  issue: string
+  fix?: string
+}
+
 export type Diagram = {
   title: string
   summary?: string
@@ -22,6 +33,7 @@ export type Diagram = {
   edges: ArchEdge[]
   flow?: string[]
   lesson?: { concept: string; explanation: string }
+  risks?: ArchRisk[]
   version: number
 }
 

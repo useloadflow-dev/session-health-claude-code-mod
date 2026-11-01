@@ -181,3 +181,66 @@ test('clicking a part explains it once, then from cache', async ($, on) => {
   expect(asked).toContain('Clicked: Postgres [database]')
   expect(asked).toContain('api -> db (SQL insert)')
 })
+
+const RISKY = {
+  ...V1,
+  risks: [
+    {
+      target: 'web -> api',
+      severity: 'high',
+      issue: 'POST /todos has no authentication, so anyone can write.',
+      fix: 'Require a session token on the API.',
+    },
+    { target: 'db', severity: 'bogus', issue: 'Postgres is reachable from the internet.' },
+    { severity: 'low', issue: 'No rate limiting anywhere.' },
+  ],
+}
+
+test('risks are drawn on their parts and listed with fixes', async ($, on) => {
+  engine(on)
+  await start($)
+  const ran = await $.tool.call({ tool: TOOL, ...RISKY } as any)
+  expect((ran as any).isError).toBeUndefined()
+  expect(String((ran as any).result)).toContain('3 security risks')
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ type: 'Text', text: /^Security risks \(design level\)$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /HIGH · Web app → API server: POST \/todos has no authentication/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Fix: Require a session token/ })).toBeDefined()
+    // An unknown severity falls back to medium.
+    expect(await ui.find({ type: 'Text', text: /MEDIUM · Postgres: Postgres is reachable/ })).toBeDefined()
+    // No target means the whole system.
+    expect(await ui.find({ type: 'Text', text: /LOW · Whole system: No rate limiting/ })).toBeDefined()
+    // The flagged part and connection carry a marker in the diagram.
+    expect(await ui.find({ type: 'Text', text: /^⚠ medium risk$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Web app → API server: POST \/todos ⚠$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /not the code/ })).toBeDefined()
+    await ui.unmount()
+  }
+})
+
+test('risks are kept per version', async ($, on) => {
+  engine(on)
+  await start($)
+  await $.tool.call({ tool: TOOL, ...RISKY } as any)
+  await $.tool.call({ tool: TOOL, ...V2 } as any)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^Security risks/ })).toBeUndefined()
+  await ui.press({ key: 'prev' })
+  expect(await ui.find({ type: 'Text', text: /^Security risks/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a risk on an unknown part is refused', async ($, on) => {
+  engine(on)
+  await start($)
+  const ran = await $.tool.call({
+    tool: TOOL,
+    ...V1,
+    risks: [{ target: 'nope', severity: 'high', issue: 'x' }],
+  } as any)
+  expect((ran as any).isError).toBe(true)
+  expect(String((ran as any).result)).toContain('risk target "nope"')
+})
