@@ -100,9 +100,6 @@ describe('line2', () => {
   })
   test('writing hides buttons', () =>
     expect(line2({ ...full, level: 'compact', phase: 'writing' }, 120)!.actions).toEqual([]))
-  test('resumed shows age', () =>
-    expect(text(line2({ ...full, phase: 'resumed', phaseAt: now - 12 * 60_000 }, 120)!.segments))
-      .toContain('↪ resumed from hand-off (12m ago)'))
   test('buttons dropped under 40 columns', () =>
     expect(line2({ ...full, level: 'compact' }, 39)!.actions).toEqual([]))
 })

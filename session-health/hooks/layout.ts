@@ -1,7 +1,7 @@
 import type { Budget, Level, Window } from './verdict.ts'
 import { AMBER, CORAL, LIME, bar, barColor, kTokens, relTime } from './meters.ts'
 
-export type Phase = 'idle' | 'compacting' | 'writing' | 'ready' | 'resumed'
+export type Phase = 'idle' | 'compacting' | 'writing' | 'ready'
 
 export type BandModel = {
   percent?: number
@@ -125,11 +125,6 @@ export function fitLine1(m: BandModel, columns: number): Segment[] {
   return line1(m, MIN_TIER)
 }
 
-function ago(m: BandModel): string {
-  const minutes = Math.max(0, Math.floor((m.now - (m.phaseAt ?? m.now)) / 60_000))
-  return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h`
-}
-
 function verdictText(m: BandModel): string | undefined {
   const turns = m.turnsLeft === undefined ? '' : ` (~${m.turnsLeft} turns left)`
   switch (m.level) {
@@ -155,11 +150,9 @@ export function line2(m: BandModel, columns: number): Line2 | undefined {
   if (m.phase === 'compacting') {
     segments.push({ text: '⟲ compacting…', color: LIME })
   } else if (m.phase === 'writing') {
-    segments.push({ text: '✎ writing hand-off…', color: LIME })
+    segments.push({ text: '✎ saving hand-off…', color: LIME })
   } else if (m.phase === 'ready') {
     segments.push({ text: '✓ hand-off ready — run /clear', color: LIME, bold: true })
-  } else if (m.phase === 'resumed') {
-    segments.push({ text: `↪ resumed from hand-off (${ago(m)} ago)`, color: LIME })
   } else {
     const v = verdictText(m)
     if (m.level === 'healthy' && v !== undefined) segments.push({ text: v, dim: true })

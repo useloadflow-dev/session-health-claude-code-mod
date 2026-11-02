@@ -1,5 +1,5 @@
 export type Level = 'healthy' | 'heavy' | 'compact' | 'fresh'
-export type Phase = 'idle' | 'compacting' | 'writing' | 'ready' | 'resumed'
+export type Phase = 'idle' | 'compacting' | 'writing' | 'ready'
 export type Window = { percent: number; resetsAt?: string }
 
 export type Snapshot = {

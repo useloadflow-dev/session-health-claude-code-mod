@@ -8,7 +8,7 @@
     {
       "name": "session-health",
       "source": "./session-health",
-      "description": "Context, 5-hour and weekly usage meters above the prompt, with compact / fresh-start advice and auto-loading hand-offs."
+      "description": "Context, 5-hour and weekly usage meters above the prompt, with compact / fresh-start advice."
     },
     {
       "name": "vibe-guard",
@@ -19,6 +19,11 @@
       "name": "arch-map",
       "source": "./arch-map",
       "description": "A side pane that draws the architecture of what you're building, version by version, with changes highlighted, a design lesson, and click-to-explain parts."
+    },
+    {
+      "name": "project-pickup",
+      "source": "./project-pickup",
+      "description": "Pick projects back up where you left off: new conversations start briefed from the project's hand-off, a status line shows the step you're on, and /projects lists where each project stands."
     }
   ]
 }
