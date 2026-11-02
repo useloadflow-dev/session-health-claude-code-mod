@@ -7,16 +7,7 @@ import { DEFAULTS, autoCompactPoint, countsCompaction, turnsLeft, verdict, type 
 import { toastsFor } from './toasts.ts'
 import { TALLY_KEY, countOf, isTally, put } from './tally.ts'
 import { BUDGETS_KEY, SYNC_MS, current, isBudgets, newer, sameWindow, type Budgets } from './budgets.ts'
-import {
-  COMPACT_INSTRUCTIONS,
-  briefPrompt,
-  handoffPath,
-  injection,
-  shouldLoad,
-  storeKey,
-  transcriptPrompt,
-  type HandoffRecord,
-} from './handoff.ts'
+import { COMPACT_INSTRUCTIONS } from './compact.ts'
 
 type $ = EngineInterface
 
@@ -30,6 +21,7 @@ const toasted = atom({ plugin: 'session-health', key: 'toasted' } as const, { le
 const handoffRef = { plugin: 'session-health', key: 'handoff' } as const
 
 const STALE_MS = 5 * 60 * 1000
+const PICKUP_INSTALL = '/plugin install project-pickup@session-health'
 
 // The session whose compactions the atom holds; unset at load and after /clear or /resume.
 let countedFor: string | undefined
@@ -218,7 +210,6 @@ export const register: Register = (on, options) => {
   const t: Thresholds = { ...DEFAULTS, ...(options as Partial<Thresholds>) }
 
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'handoff', description: 'Write a hand-off brief for a fresh session' })
     await $.command.register({ name: 'smart-compact', description: 'Compact, keeping the goal, open tasks, decisions and files in play' })
     // A reload drops whatever compaction or fork was in flight; its phase must not outlive it.
     writing = false
@@ -236,32 +227,12 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('command.run', { command: 'handoff' }, async $ => {
-    const written = await startHandoff($)
-    if (written === 'busy') return { text: 'A hand-off is already being written.' }
-    return {
-      text: written
-        ? 'Hand-off written to .claude/handoff.md — run /clear to start fresh.'
-        : 'Hand-off not written (see toast).',
-    }
-  })
-
   on('command.run', { command: 'smart-compact' }, async $ => {
     if ((await read($, handoff)).phase === 'compacting') return { text: 'A compaction is already running.' }
     // Not awaited: /compact is queued behind this command and runs once it returns.
     void compactNow($)
     return { text: 'Compacting with smart instructions…' }
   })
-
-  on('prompt.submit', async ($, e, next) => {
-    let brief: string | undefined
-    try {
-      brief = await loadHandoff($)
-    } catch (err) {
-      $.ui.status(`session-health: hand-off not loaded (${err instanceof Error ? err.message : String(err)})`)
-    }
-    return brief === undefined ? next(e) : next({ ...e, context: [...(e.context ?? []), injection(brief)] })
-  }).catch(($, e, next) => next(e))
 
   on('session.measure', async ($, e, next) => {
     await adoptSession($)
@@ -272,7 +243,6 @@ export const register: Register = (on, options) => {
     }
     const ho = await read($, handoff)
     const nTurns = await $.session.turns()
-    if (ho.phase === 'resumed' && nTurns >= 1) await endPhase($, 'resumed')
     if (ho.phase === 'ready' && nTurns >= (ho.turn ?? 0) + READY_TURNS) await endPhase($, 'ready')
     await notify($, t)
     return next(e)
@@ -343,31 +313,28 @@ async function compactNow($: $) {
   }
 }
 
+// The project-pickup mod owns hand-offs: [fresh start] asks it to save one.
 async function startHandoff($: $): Promise<boolean | 'busy'> {
   if (!(await claimWriting($, await $.clock.now()))) {
     $.ui.toast('A hand-off is already being written')
     return 'busy'
   }
   try {
-    const root = await $.session.root()
-    const project = root.split('/').filter(Boolean).pop() ?? root
-    const stamp = new Date(await $.clock.now()).toISOString().slice(0, 16).replace('T', ' ')
-    const prompt = briefPrompt(project, stamp)
-
-    let r = await $.model.fork({ prompt })
-    if (!r.isAnswered && r.reason === 'nothing-to-fork') {
-      const messages = await $.session.messages()
-      if (messages.length === 0) throw new Error('nothing to hand off yet')
-      r = await $.model.complete({ model: await $.session.model(), prompt: transcriptPrompt(messages) + prompt })
+    const commands = await $.command.list()
+    if (!commands.some(c => c.name === 'pickup')) {
+      $.ui.toast(`[fresh start] needs the project-pickup mod: ${PICKUP_INSTALL}`)
+      await endPhase($, 'writing')
+      return false
     }
-    if (!r.isAnswered) throw new Error(r.reason)
-
-    const path = handoffPath(root)
-    await $.fs.write(path, r.text)
-    const rec: HandoffRecord = { path, writtenAt: await $.clock.now(), sessionId: await $.session.id(), consumed: false }
-    await $.store.set(storeKey(root), rec)
+    // project-pickup's answer starts "Saved" once the file is written; it toasts its own failures.
+    const r = await $.command.run({ command: 'pickup', args: 'save' })
+    if (!r.text?.startsWith('Saved')) {
+      await endPhase($, 'writing')
+      return false
+    }
     const turn = await $.session.turns()
-    await update($, handoff, (): HandoffPhase => ({ phase: 'ready', at: rec.writtenAt, turn }))
+    const at = await $.clock.now()
+    await update($, handoff, (): HandoffPhase => ({ phase: 'ready', at, turn }))
     $.ui.toast('Hand-off ready — run /clear')
     return true
   } catch (err) {
@@ -377,16 +344,4 @@ async function startHandoff($: $): Promise<boolean | 'busy'> {
   } finally {
     writing = false
   }
-}
-
-// The brief to hand the model with this prompt, when a fresh conversation has one waiting.
-async function loadHandoff($: $): Promise<string | undefined> {
-  const root = await $.session.root()
-  const rec = (await $.store.get(storeKey(root))) as HandoffRecord | undefined
-  if (!shouldLoad(rec, await $.clock.now(), await $.session.turns())) return undefined
-  if (rec!.sessionId === (await $.session.id())) return undefined
-  const brief = await $.fs.read(rec!.path)
-  await $.store.set(storeKey(root), { ...rec!, consumed: true })
-  await setPhase($, 'resumed', rec!.writtenAt)
-  return brief
 }
