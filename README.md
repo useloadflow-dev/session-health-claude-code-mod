@@ -51,8 +51,11 @@ The SESSION and WEEK meters sync across your open sessions every 15s, so an idle
 ## More mods in this marketplace
 
 - **[project-pickup](project-pickup/README.md)**: pick projects back up where you left off. Every new conversation starts briefed from the project's hand-off, a status line shows the step you're on, and `/projects` lists where each project stands. `/plugin install project-pickup --marketplace useloadflow-dev/session-health-claude-code-mod`
-- **[arch-map](arch-map/README.md)**: a side pane that draws the architecture of what you're building, with version history, changes highlighted, a design lesson per change, and click-to-explain parts. `/plugin install arch-map --marketplace useloadflow-dev/session-health-claude-code-mod`
 - **[vibe-guard](vibe-guard/README.md)**: a companion to the vibe-wise learning plugin.
+
+## Elsewhere
+
+- **[arch-map](https://github.com/useloadflow-dev/arch-map-claude-code-mod)** now lives in its own repo: `/plugin install arch-map --marketplace useloadflow-dev/arch-map-claude-code-mod`
 
 ## Development
 
