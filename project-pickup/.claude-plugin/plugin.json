@@ -1,6 +1,6 @@
 {
   "name": "project-pickup",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Pick projects back up where you left off: every new conversation starts briefed from the project's hand-off, a status line shows the step you're on, /projects lists where each project stands, and /task-bucket shows this project's steps in groups.",
   "author": {
     "name": "Jack Halperin"

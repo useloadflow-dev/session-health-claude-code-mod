@@ -7,7 +7,7 @@ const cmd = (command: string, args = '') => ({ command, args }) as never
 const prompt = (text: string) => ({ text }) as never
 const DAY = 86_400_000
 
-type Host = { files: Map<string, string>; store: Map<string, unknown>; statuses: (string | undefined)[]; toasts: string[] }
+type Host = { files: Map<string, string>; store: Map<string, unknown>; statuses: (string | undefined)[]; toasts: string[]; panes: Map<string, boolean> }
 
 // The engine beneath the mod: a project at /proj, files in memory, a session id and turn count.
 function host(on: On, opts: { files?: Record<string, string>; turns?: number; sessionId?: string; now?: number; store?: Record<string, unknown>; placed?: boolean } = {}): Host {
@@ -36,7 +36,20 @@ function host(on: On, opts: { files?: Record<string, string>; turns?: number; se
     toasts.push(e.text)
     return { value: undefined }
   })
-  on('ui.open', () => ({ value: opts.placed === false ? { isPlaced: false, reason: 'no surface' } : { isPlaced: true } }))
+  // Open panes by id; the value says whether it is the tab on show.
+  const panes = new Map<string, boolean>()
+  on('ui.open', (_$, e) => {
+    if (opts.placed === false) return { value: { isPlaced: false, reason: 'no surface' } }
+    panes.set(e.id, true)
+    return { value: { isPlaced: true } }
+  })
+  on('ui.close', (_$, e) => {
+    panes.delete(e.id)
+    return { value: undefined }
+  })
+  on('ui.panes', () => ({
+    value: [...panes].map(([id, isShown]) => ({ id, title: id, isShown, isFocused: false, isPlaced: true })),
+  }))
   on('fs.list', (_$, e) => {
     const dir = `${e.path ?? '/proj'}/`
     const names = [...files.keys()].filter(p => p.startsWith(dir) && !p.slice(dir.length).includes('/'))
@@ -53,7 +66,7 @@ function host(on: On, opts: { files?: Record<string, string>; turns?: number; se
   })
   on('tool.call', () => ({ result: {} }))
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
-  return { files, store, statuses, toasts }
+  return { files, store, statuses, toasts, panes }
 }
 
 const LEGACY = '# VanSync handoff\n- Step 5 CONFIRMED + IMPLEMENTED\n## Next\nTestFlight build'
@@ -206,6 +219,44 @@ test('/task-bucket reads the hand-off afresh, so hand edits show', async ($, on)
   const ui = await bucketPane($)
   expect((await ui.find({ type: 'Text', text: /TestFlight/ }))?.text).toBe('✓ TestFlight')
   await ui.unmount()
+})
+
+test('/task-bucket closes the pane when it is open, and reopens it with the steps intact', async ($, on) => {
+  const h = host(on, { files: { '/proj/.claude/handoff.md': GROUPED } })
+  await start($)
+  await $.command.run(cmd('task-bucket'))
+  expect(h.panes.has('task-bucket')).toBe(true)
+  const closed = await $.command.run(cmd('task-bucket'))
+  expect(closed.text).toBe('Task bucket closed. /task-bucket opens it again.')
+  expect(h.panes.has('task-bucket')).toBe(false)
+  const reopened = await $.command.run(cmd('task-bucket'))
+  expect(reopened.text).toBe('Task bucket opened.')
+  expect(h.panes.has('task-bucket')).toBe(true)
+  const ui = await bucketPane($)
+  expect((await ui.find({ type: 'Text', text: /Sync/ }))?.text).toBe('◐ Sync')
+  await ui.unmount()
+})
+
+test('/task-bucket picks up edits made while the pane was closed', async ($, on) => {
+  const h = host(on, { files: { '/proj/.claude/handoff.md': GROUPED } })
+  await start($)
+  await $.command.run(cmd('task-bucket'))
+  await $.command.run(cmd('task-bucket'))
+  h.files.set('/proj/.claude/handoff.md', GROUPED.replace('- [ ] 3.', '- [x] 3.'))
+  await $.command.run(cmd('task-bucket'))
+  const ui = await bucketPane($)
+  expect((await ui.find({ type: 'Text', text: /TestFlight/ }))?.text).toBe('✓ TestFlight')
+  await ui.unmount()
+})
+
+test('/task-bucket behind another tab opens rather than closes', async ($, on) => {
+  const h = host(on, { files: { '/proj/.claude/handoff.md': GROUPED } })
+  await start($)
+  await $.command.run(cmd('task-bucket'))
+  h.panes.set('task-bucket', false)
+  const r = await $.command.run(cmd('task-bucket'))
+  expect(r.text).toBe('Task bucket opened.')
+  expect(h.panes.has('task-bucket')).toBe(true)
 })
 
 test('/task-bucket prints the list when no pane can be drawn', async ($, on) => {
