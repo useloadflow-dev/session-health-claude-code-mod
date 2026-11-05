@@ -50,7 +50,7 @@ The SESSION and WEEK meters sync across your open sessions every 15s, so an idle
 
 ## More mods in this marketplace
 
-- **[project-pickup](project-pickup/README.md)**: pick projects back up where you left off. Every new conversation starts briefed from the project's hand-off, a status line shows the step you're on, and `/projects` lists where each project stands. `/plugin install project-pickup --marketplace useloadflow-dev/session-health-claude-code-mod`
+- **[project-pickup](project-pickup/README.md)**: pick projects back up where you left off. Every new conversation starts briefed from the project's hand-off, a status line shows the step you're on, `/projects` lists where each project stands, and `/task-bucket` shows this project's steps in groups. `/plugin install project-pickup --marketplace useloadflow-dev/session-health-claude-code-mod`
 - **[vibe-guard](vibe-guard/README.md)**: a companion to the vibe-wise learning plugin.
 
 ## Elsewhere
