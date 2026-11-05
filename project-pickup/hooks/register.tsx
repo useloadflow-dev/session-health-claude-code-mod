@@ -6,16 +6,21 @@ import {
   FILE_NAME,
   REGISTRY_KEY,
   SEARCH_DIRS,
+  STEP_MARK,
   ago,
+  bucket,
   byRecent,
+  groupHeader,
   injection,
   isRegistry,
+  noTasks,
   overview,
   progress,
   projectName,
   savePrompt,
   statusLine,
   summarize,
+  taskGroups,
   transcriptPrompt,
   type Registry,
 } from './pickup.ts'
@@ -23,9 +28,10 @@ import {
 type $ = EngineInterface
 
 const PANE = 'projects'
+const BUCKET_PANE = 'task-bucket'
 const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit'])
 
-const here = atom({ plugin: 'project-pickup', key: 'here' } as const, null as Here | null, { shape: 'here-1' })
+const here = atom({ plugin: 'project-pickup', key: 'here' } as const, null as Here | null, { shape: 'here-2' })
 const dirty = atom({ plugin: 'project-pickup', key: 'dirty' } as const, false)
 const briefed = atom({ plugin: 'project-pickup', key: 'briefed' } as const, '')
 
@@ -56,7 +62,7 @@ async function refresh($: $): Promise<Here> {
   if (rel) {
     const text = await $.fs.read(`${root}/${rel}`)
     const stat = await $.fs.stat(`${root}/${rel}`)
-    h = { root, rel, summary: summarize(text), savedAt: stat.mtimeMs || now }
+    h = { root, rel, summary: summarize(text), groups: taskGroups(text), savedAt: stat.mtimeMs || now }
     const all = await registry($)
     all[root] = { name: projectName(root), root, path: rel, summary: h.summary!, savedAt: h.savedAt!, seenAt: now }
     await $.store.set(REGISTRY_KEY, all).catch(() => {})
@@ -112,6 +118,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'pickup', description: 'Where this project stands; /pickup save writes the hand-off', argumentHint: '[save]' })
     await $.command.register({ name: 'projects', description: 'Show where each of your projects stands' })
+    await $.command.register({ name: 'task-bucket', description: "Show this project's hand-off steps, in groups, in a pane" })
     saving = false
     await refresh($).catch(() => {})
     return next(e)
@@ -129,6 +136,14 @@ export const register: Register = on => {
   on('command.run', { command: 'projects' }, async $ => {
     await $.ui.open({ id: PANE, title: 'Projects' })
     return { text: overview(byRecent(await registry($)), await $.clock.now()) }
+  })
+
+  on('command.run', { command: 'task-bucket' }, async $ => {
+    const h = await refresh($)
+    const opened = await $.ui.open({ id: BUCKET_PANE, title: 'Task bucket' })
+    if (opened.isPlaced) return { text: 'Task bucket opened.' }
+    // No surface can draw the pane: the list still reaches the person.
+    return { text: h.groups?.length ? bucket(h.groups) : noTasks(h.rel) }
   })
 
   // The first prompt of each conversation carries the hand-off: a new session, or one after /clear.
@@ -167,6 +182,28 @@ export const register: Register = on => {
       await paint($)
     }
     return next(e)
+  })
+
+  on('ui.render', { component: 'Pane', requestId: BUCKET_PANE }, async ($, e) => {
+    const { Box, Text } = $.ui.resolve(e)
+    // Not named `h`: JSX compiles to calls of the global `h`.
+    const project = await read($, here)
+    const groups = project?.groups ?? []
+    if (groups.length === 0) return <Text dimColor>{noTasks(project?.rel)}</Text>
+    return (
+      <Box flexDirection="column">
+        {groups.map(g => (
+          <Box flexDirection="column" marginBottom={1}>
+            <Text bold>{groupHeader(g)}</Text>
+            {g.steps.map(s => (
+              <Text dimColor={s.state === 'done'} bold={s.state === 'doing'}>
+                {STEP_MARK[s.state]} {s.text}
+              </Text>
+            ))}
+          </Box>
+        ))}
+      </Box>
+    )
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {

@@ -10,7 +10,7 @@ const DAY = 86_400_000
 type Host = { files: Map<string, string>; store: Map<string, unknown>; statuses: (string | undefined)[]; toasts: string[] }
 
 // The engine beneath the mod: a project at /proj, files in memory, a session id and turn count.
-function host(on: On, opts: { files?: Record<string, string>; turns?: number; sessionId?: string; now?: number; store?: Record<string, unknown> } = {}): Host {
+function host(on: On, opts: { files?: Record<string, string>; turns?: number; sessionId?: string; now?: number; store?: Record<string, unknown>; placed?: boolean } = {}): Host {
   const files = new Map(Object.entries(opts.files ?? {}))
   const store = new Map(Object.entries(opts.store ?? {}))
   const statuses: (string | undefined)[] = []
@@ -36,7 +36,7 @@ function host(on: On, opts: { files?: Record<string, string>; turns?: number; se
     toasts.push(e.text)
     return { value: undefined }
   })
-  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.open', () => ({ value: opts.placed === false ? { isPlaced: false, reason: 'no surface' } : { isPlaced: true } }))
   on('fs.list', (_$, e) => {
     const dir = `${e.path ?? '/proj'}/`
     const names = [...files.keys()].filter(p => p.startsWith(dir) && !p.slice(dir.length).includes('/'))
@@ -172,5 +172,55 @@ test('/projects lists every project, most recent first, in a pane', async ($, on
     props: { title: 'Projects', isFocused: false, bodyColumns: 40, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
   })
   expect((await ui.find({ type: 'Text', text: /next: auth/ }))?.text).toBe('next: auth')
+  await ui.unmount()
+})
+
+const GROUPED = '# Pickup — proj\n## Steps\n### Backend\n- [x] 1. Auth\n- [~] 2. Sync\n### Launch\n- [ ] 3. TestFlight\n## Next action\nSync'
+const bucketPane = ($: Parameters<TestBody>[0]) =>
+  $.ui.mount({
+    plugin: 'project-pickup',
+    component: 'Pane',
+    requestId: 'task-bucket',
+    surface: 'desktop',
+    props: { title: 'Task bucket', isFocused: false, bodyColumns: 40, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
+  })
+
+test('/task-bucket shows the hand-off steps in their groups, in a pane', async ($, on) => {
+  host(on, { files: { '/proj/.claude/handoff.md': GROUPED } })
+  await start($)
+  const r = await $.command.run(cmd('task-bucket'))
+  expect(r.text).toBe('Task bucket opened.')
+  const ui = await bucketPane($)
+  expect((await ui.find({ type: 'Text', text: /Backend/ }))?.text).toBe('Backend 1/2')
+  expect((await ui.find({ type: 'Text', text: /Launch/ }))?.text).toBe('Launch 0/1')
+  expect((await ui.find({ type: 'Text', text: /Sync/ }))?.text).toBe('◐ Sync')
+  expect((await ui.find({ type: 'Text', text: /TestFlight/ }))?.text).toBe('○ TestFlight')
+  await ui.unmount()
+})
+
+test('/task-bucket reads the hand-off afresh, so hand edits show', async ($, on) => {
+  const h = host(on, { files: { '/proj/.claude/handoff.md': GROUPED } })
+  await start($)
+  h.files.set('/proj/.claude/handoff.md', GROUPED.replace('- [ ] 3.', '- [x] 3.'))
+  await $.command.run(cmd('task-bucket'))
+  const ui = await bucketPane($)
+  expect((await ui.find({ type: 'Text', text: /TestFlight/ }))?.text).toBe('✓ TestFlight')
+  await ui.unmount()
+})
+
+test('/task-bucket prints the list when no pane can be drawn', async ($, on) => {
+  host(on, { files: { '/proj/.claude/handoff.md': GROUPED }, placed: false })
+  await start($)
+  const r = await $.command.run(cmd('task-bucket'))
+  expect(r.text).toContain('✓ Auth\n◐ Sync')
+  expect(r.text).toContain('○ TestFlight')
+})
+
+test('/task-bucket says what to do in a project with no checklist', async ($, on) => {
+  host(on, { placed: false })
+  await start($)
+  expect((await $.command.run(cmd('task-bucket'))).text).toBe('No hand-off here yet. /pickup save writes one.')
+  const ui = await bucketPane($)
+  expect(await ui.find({ type: 'Text', text: /No hand-off here yet/ })).toBeDefined()
   await ui.unmount()
 })

@@ -18,7 +18,7 @@
     {
       "name": "project-pickup",
       "source": "./project-pickup",
-      "description": "Pick projects back up where you left off: new conversations start briefed from the project's hand-off, a status line shows the step you're on, and /projects lists where each project stands."
+      "description": "Pick projects back up where you left off: new conversations start briefed from the project's hand-off, a status line shows the step you're on, /projects lists where each project stands, and /task-bucket shows this project's steps in groups."
     }
   ]
 }
