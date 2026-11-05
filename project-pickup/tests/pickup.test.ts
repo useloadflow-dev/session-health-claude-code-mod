@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { ago, injection, overview, savePrompt, statusLine, summarize } from '../hooks/pickup.ts'
+import { ago, bucket, groupHeader, injection, overview, savePrompt, statusLine, summarize, taskGroups } from '../hooks/pickup.ts'
 
 const STANDARD = `# Pickup — VanSync
 _Saved 2026-11-02 08:40_
@@ -15,6 +15,53 @@ Ship v1 to TestFlight.
 ## Decisions (and why)
 - [ ] not a step: a checklist outside Steps is ignored
 `
+
+describe('taskGroups', () => {
+  const GROUPED = `## Steps
+- [x] 1. Sketch
+### Backend
+- [x] 2. **Auth**
+- [~] 3. Sync
+### Empty
+### Launch
+- [ ] 4. TestFlight
+## Next action
+- [ ] not a step
+`
+
+  test('splits the Steps checklist at its subheadings, dropping empty groups', () =>
+    expect(taskGroups(GROUPED)).toEqual([
+      { steps: [{ text: 'Sketch', state: 'done' }] },
+      {
+        name: 'Backend',
+        steps: [
+          { text: 'Auth', state: 'done' },
+          { text: 'Sync', state: 'doing' },
+        ],
+      },
+      { name: 'Launch', steps: [{ text: 'TestFlight', state: 'todo' }] },
+    ]))
+  test('a flat checklist is one unnamed group', () => {
+    const groups = taskGroups(STANDARD)
+    expect(groups.length).toBe(1)
+    expect(groups[0]!.name).toBeUndefined()
+    expect(groups[0]!.steps.length).toBe(4)
+  })
+  test('groups do not change the summary count', () => expect(summarize(GROUPED).total).toBe(4))
+  test('a file with no checklist has no groups', () => expect(taskGroups('# Notes\nhello')).toEqual([]))
+})
+
+describe('groupHeader', () => {
+  const step = (state: 'done' | 'doing' | 'todo') => ({ text: 's', state })
+
+  test('counts only finished steps', () =>
+    expect(groupHeader({ name: 'Backend', steps: [step('done'), step('doing'), step('todo')] })).toBe('Backend 1/3'))
+  test('a finished group is ticked', () =>
+    expect(groupHeader({ name: 'Backend', steps: [step('done'), step('done')] })).toBe('✓ Backend 2/2'))
+  test('an unnamed group is called Tasks', () => expect(groupHeader({ steps: [step('todo')] })).toBe('Tasks 0/1'))
+  test('the text list carries the headers', () =>
+    expect(bucket([{ name: 'Backend', steps: [{ text: 'Auth', state: 'done' }] }])).toBe('✓ Backend 1/1\n✓ Auth'))
+})
 
 describe('summarize', () => {
   test('counts the Steps checklist and finds the step in progress', () => {
@@ -61,6 +108,7 @@ test('the save prompt merges into an existing hand-off and fixes the layout', ()
   expect(p).toContain('<current-handoff>\nOLD BRIEF\n</current-handoff>')
   expect(p).toContain('## Steps')
   expect(p).toContain('# Pickup — VanSync')
+  expect(p).toContain('### Part name')
   expect(savePrompt('VanSync', 'now')).not.toContain('current-handoff')
 })
 

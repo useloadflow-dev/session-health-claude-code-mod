@@ -7,9 +7,9 @@ export const DEFAULT_PATH = '.claude/handoff.md'
 const INJECT_BUDGET = 24_000
 const TRANSCRIPT_BUDGET = 120_000
 
-import type { Summary } from '../types'
+import type { Group, Step, Summary } from '../types'
 
-export type { Summary }
+export type { Group, Step, Summary }
 
 export type Entry = {
   name: string
@@ -45,9 +45,52 @@ function section(md: string, heading: RegExp): string[] | undefined {
 
 const plain = (s: string) => s.replace(/^\s*(?:[-*]|\d+[.)])\s+/, '').replace(/\*\*|__|`/g, '').trim()
 
+// The lines that hold the plan: its section, or the whole file when it has none.
+const planLines = (md: string) => section(md, /steps|roadmap|plan|progress/i) ?? md.split('\n')
+
+const stateOf = (mark: string): Step['state'] => (mark === 'x' || mark === 'X' ? 'done' : mark === ' ' ? 'todo' : 'doing')
+
+// The plan's checklist, split at its `### name` subheadings; a group with no steps is dropped.
+export function taskGroups(md: string): Group[] {
+  const groups: Group[] = []
+  let open: Group | undefined
+  for (const line of planLines(md)) {
+    const head = /^#{3,}\s+(.*\S)\s*$/.exec(line)
+    if (head) {
+      open = { name: plain(head[1]!), steps: [] }
+      groups.push(open)
+      continue
+    }
+    const m = CHECK.exec(line)
+    if (!m) continue
+    if (!open) {
+      open = { steps: [] }
+      groups.push(open)
+    }
+    open.steps.push({ text: plain(m[2]!), state: stateOf(m[1]!) })
+  }
+  return groups.filter(g => g.steps.length > 0)
+}
+
+export const STEP_MARK: Record<Step['state'], string> = { done: '✓', doing: '◐', todo: '○' }
+
+// The line above a group's steps: its name and count, the same count the status line
+// keeps (only finished steps), ticked once the group is done so the eye can skip it.
+export function groupHeader(group: Group): string {
+  const done = group.steps.filter(s => s.state === 'done').length
+  const total = group.steps.length
+  return `${done === total ? '✓ ' : ''}${group.name ?? 'Tasks'} ${done}/${total}`
+}
+
+// The groups as plain text, for when no pane can be drawn.
+export const bucket = (groups: readonly Group[]) =>
+  groups.map(g => [groupHeader(g), ...g.steps.map(s => `${STEP_MARK[s.state]} ${s.text}`)].join('\n')).join('\n\n')
+
+export const noTasks = (rel: string | undefined) =>
+  rel ? `${rel} has no Steps checklist yet. /pickup save adds one.` : 'No hand-off here yet. /pickup save writes one.'
+
 export function summarize(md: string): Summary {
-  const scope = section(md, /steps|roadmap|plan|progress/i) ?? md.split('\n')
-  const items = scope.map(l => CHECK.exec(l)).filter((m): m is RegExpExecArray => m !== null)
+  const items = planLines(md).map(l => CHECK.exec(l)).filter((m): m is RegExpExecArray => m !== null)
   const out: Summary = { done: 0 }
   if (items.length > 0) {
     out.total = items.length
@@ -127,6 +170,7 @@ export function savePrompt(name: string, stamp: string, existing?: string): stri
     '## Goal',
     '## Steps',
     'A numbered checklist of the whole plan: `- [x] 1. …` done, `- [~] 2. …` in progress, `- [ ] 3. …` not started.',
+    'When the plan has distinct parts, group its steps under `### Part name` subheadings, numbering straight on across them. Keep the names and order of groups already there.',
     '## Next action',
     'One line: the very next concrete thing to do.',
     '## Decisions (and why)',
