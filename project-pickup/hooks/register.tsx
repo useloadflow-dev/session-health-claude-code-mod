@@ -118,7 +118,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'pickup', description: 'Where this project stands; /pickup save writes the hand-off', argumentHint: '[save]' })
     await $.command.register({ name: 'projects', description: 'Show where each of your projects stands' })
-    await $.command.register({ name: 'task-bucket', description: "Show this project's hand-off steps, in groups, in a pane" })
+    await $.command.register({ name: 'task-bucket', description: "Open or close a pane of this project's hand-off steps, in groups" })
     saving = false
     await refresh($).catch(() => {})
     return next(e)
@@ -138,7 +138,15 @@ export const register: Register = on => {
     return { text: overview(byRecent(await registry($)), await $.clock.now()) }
   })
 
+  // A toggle: closing loses nothing, as the pane is drawn from the hand-off file.
   on('command.run', { command: 'task-bucket' }, async $ => {
+    // Asks the engine, not a variable: the person can close the pane themselves.
+    // Behind another tab it isn't "open" to them, so it opens rather than closes.
+    const isShown = (await $.ui.panes()).some(p => p.id === BUCKET_PANE && p.isShown)
+    if (isShown) {
+      await $.ui.close({ id: BUCKET_PANE })
+      return { text: 'Task bucket closed. /task-bucket opens it again.' }
+    }
     const h = await refresh($)
     const opened = await $.ui.open({ id: BUCKET_PANE, title: 'Task bucket' })
     if (opened.isPlaced) return { text: 'Task bucket opened.' }
