@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-// [fresh start] hands the writing to project-pickup's `/pickup save`; these hooks stand for it.
+// [fresh start] hands the writing to project-pickup's `/pickup-save`; these hooks stand for it.
 declare const setTimeout: (fn: () => void, ms: number) => unknown
 const tick = () => new Promise<void>(r => setTimeout(() => r(), 1))
 const FRESH = { options: { compactPct: 0, freshCompactions: 0 } }
@@ -23,8 +23,8 @@ function host(on: On, opts: { pickup: boolean; answer?: string; run?: () => Prom
     h.toasts.push(e.text)
     return { value: undefined }
   })
-  on('command.list', () => ({ value: (opts.pickup ? [{ name: 'pickup' }] : [{ name: 'compact' }]) as never }))
-  on('command.run', { command: 'pickup' }, async (_$, e) => {
+  on('command.list', () => ({ value: (opts.pickup ? [{ name: 'pickup-save' }] : [{ name: 'compact' }]) as never }))
+  on('command.run', { command: 'pickup-save' }, async (_$, e) => {
     h.saves.push(e.args)
     if (opts.run) return { text: await opts.run() }
     return { text: opts.answer ?? 'Saved hand-off to HANDOFF.md (5/7). Run /clear to start fresh from it.' }
@@ -36,11 +36,11 @@ function host(on: On, opts: { pickup: boolean; answer?: string; run?: () => Prom
   return h
 }
 
-test('[fresh start] runs /pickup save and says the hand-off is ready', FRESH, async ($, on) => {
+test('[fresh start] runs /pickup-save and says the hand-off is ready', FRESH, async ($, on) => {
   const h = host(on, { pickup: true })
   const ui = await $.ui.mount({ plugin: 'session-health', surface: 'terminal', ...BAND })
   await ui.press({ key: 'fresh' })
-  expect(h.saves).toEqual(['save'])
+  expect(h.saves).toEqual([''])
   expect(h.toasts).toContain('Hand-off ready — run /clear')
   await ui.redraw()
   expect(await ui.find({ type: 'Text', text: /hand-off ready/ })).toBeDefined()

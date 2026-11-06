@@ -64,6 +64,7 @@ function host(on: On, opts: { files?: Record<string, string>; turns?: number; se
     files.set(e.path, e.text)
     return { value: undefined }
   })
+  on('env.get', () => ({ value: '/home/me' }))
   on('tool.call', () => ({ result: {} }))
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   return { files, store, statuses, toasts, panes }
@@ -116,12 +117,12 @@ test('an edit marks unsaved progress; editing the hand-off itself clears it', as
   const h = host(on, { files: { '/proj/handoff.md': LEGACY } })
   await start($)
   await $.tool.call({ tool: 'Edit', file_path: '/proj/src/app.ts', old_string: 'a', new_string: 'b' } as never)
-  expect(h.statuses.at(-1)).toContain('unsaved progress — /pickup save')
+  expect(h.statuses.at(-1)).toContain('unsaved progress — /pickup-save')
   await $.tool.call({ tool: 'Edit', file_path: '/proj/handoff.md', old_string: 'a', new_string: 'b' } as never)
   expect(h.statuses.at(-1)).not.toContain('unsaved')
 })
 
-test('/pickup save merges into the existing file where it is', async ($, on) => {
+test('/pickup-save merges into the existing file where it is', async ($, on) => {
   const h = host(on, { files: { '/proj/HANDOFF.md': LEGACY } })
   const prompts: string[] = []
   on('model.fork', (_$, e) => {
@@ -130,7 +131,7 @@ test('/pickup save merges into the existing file where it is', async ($, on) => 
   })
   await start($)
   await $.tool.call({ tool: 'Write', file_path: '/proj/x.ts', content: '' } as never)
-  const r = await $.command.run(cmd('pickup', 'save'))
+  const r = await $.command.run(cmd('pickup-save'))
   expect(r.text).toBe('Saved hand-off to HANDOFF.md (1/2). Run /clear to start fresh from it.')
   expect(prompts[0]).toContain('Step 5 CONFIRMED')
   expect(h.files.get('/proj/HANDOFF.md')).toContain('# Pickup — proj')
@@ -138,11 +139,11 @@ test('/pickup save merges into the existing file where it is', async ($, on) => 
   expect(h.statuses.at(-1)).not.toContain('unsaved')
 })
 
-test('/pickup save in a project without one writes .claude/handoff.md', async ($, on) => {
+test('/pickup-save in a project without one writes .claude/handoff.md', async ($, on) => {
   const h = host(on)
   on('model.fork', () => ({ value: { isAnswered: true, text: '# Pickup — proj', usage: USAGE } }))
   await start($)
-  const r = await $.command.run(cmd('pickup', 'save'))
+  const r = await $.command.run(cmd('pickup-save'))
   expect(r.text).toContain('Saved hand-off to .claude/handoff.md')
   expect(h.files.get('/proj/.claude/handoff.md')).toBe('# Pickup — proj')
 })
@@ -151,7 +152,7 @@ test('a save with nothing to go on says so and writes nothing', async ($, on) =>
   const h = host(on)
   on('model.fork', () => ({ value: { isAnswered: false, reason: 'nothing-to-fork', usage: USAGE } }))
   await start($)
-  const r = await $.command.run(cmd('pickup', 'save'))
+  const r = await $.command.run(cmd('pickup-save'))
   expect(r.text).toBe('Hand-off not saved: nothing to save yet')
   expect(h.files.size).toBe(0)
 })
@@ -161,9 +162,64 @@ test('in a fresh conversation, save tidies the existing hand-off without a fork'
   on('model.fork', () => ({ value: { isAnswered: false, reason: 'nothing-to-fork', usage: USAGE } }))
   on('model.complete', () => ({ value: { isAnswered: true, text: '# Pickup — proj\n## Steps\n- [x] 1. five', usage: USAGE } }))
   await start($)
-  const r = await $.command.run(cmd('pickup', 'save'))
+  const r = await $.command.run(cmd('pickup-save'))
   expect(r.text).toContain('Saved hand-off to handoff.md (1/1)')
   expect(h.files.get('/proj/handoff.md')).toContain('# Pickup')
+})
+
+test('/pickup-save <path> imports a hand-off from outside the project', async ($, on) => {
+  const h = host(on, { files: { '/tmp/other handoff.md': 'Written by another skill' } })
+  const prompts: string[] = []
+  on('model.fork', (_$, e) => {
+    prompts.push(e.prompt)
+    return { value: { isAnswered: true, text: '# Pickup — proj\n## Steps\n- [ ] 1. a', usage: USAGE } }
+  })
+  await start($)
+  const r = await $.command.run(cmd('pickup-save', '/tmp/other\\ handoff.md'))
+  expect(r.text).toBe('Saved hand-off to .claude/handoff.md (0/1), imported from /tmp/other handoff.md. Run /clear to start fresh from it.')
+  expect(prompts[0]).toContain('Written by another skill')
+  expect(h.files.get('/tmp/other handoff.md')).toBe('Written by another skill')
+})
+
+test('an import merges with the hand-off already in the project', async ($, on) => {
+  const h = host(on, { files: { '/proj/handoff.md': LEGACY, '/home/me/notes.md': 'Imported notes' } })
+  const prompts: string[] = []
+  on('model.fork', (_$, e) => {
+    prompts.push(e.prompt)
+    return { value: { isAnswered: true, text: '# Pickup — proj', usage: USAGE } }
+  })
+  await start($)
+  await $.command.run(cmd('pickup-save', '~/notes.md'))
+  expect(prompts[0]).toContain('Imported notes')
+  expect(prompts[0]).toContain('Step 5 CONFIRMED')
+  expect(h.files.get('/proj/handoff.md')).toBe('# Pickup — proj')
+})
+
+test('an import works in a fresh conversation with no hand-off yet', async ($, on) => {
+  const h = host(on, { files: { '/tmp/h.md': 'Notes' } })
+  on('model.fork', () => ({ value: { isAnswered: false, reason: 'nothing-to-fork', usage: USAGE } }))
+  on('model.complete', () => ({ value: { isAnswered: true, text: '# Pickup — proj', usage: USAGE } }))
+  await start($)
+  const r = await $.command.run(cmd('pickup-save', '/tmp/h.md'))
+  expect(r.text).toContain('Saved hand-off to .claude/handoff.md')
+  expect(h.files.get('/proj/.claude/handoff.md')).toBe('# Pickup — proj')
+})
+
+test('an import that cannot be read writes nothing and names the path', async ($, on) => {
+  const h = host(on, { files: { '/tmp/blank.md': '  \n' } })
+  await start($)
+  expect((await $.command.run(cmd('pickup-save', '/tmp/gone.md'))).text).toBe("Hand-off not saved: can't read /tmp/gone.md")
+  expect((await $.command.run(cmd('pickup-save', '/tmp/blank.md'))).text).toBe('Hand-off not saved: /tmp/blank.md is empty')
+  expect(h.files.has('/proj/.claude/handoff.md')).toBe(false)
+})
+
+test('/pickup still saves for an older session-health, and names what else it was given', async ($, on) => {
+  const h = host(on)
+  on('model.fork', () => ({ value: { isAnswered: true, text: '# Pickup — proj', usage: USAGE } }))
+  await start($)
+  expect((await $.command.run(cmd('pickup', 'save'))).text).toContain('Saved hand-off')
+  expect((await $.command.run(cmd('pickup', 'Save it'))).text).toContain('(got "Save it")')
+  expect(h.files.get('/proj/.claude/handoff.md')).toBe('# Pickup — proj')
 })
 
 test('/projects lists every project, most recent first, in a pane', async ($, on) => {
@@ -270,7 +326,7 @@ test('/task-bucket prints the list when no pane can be drawn', async ($, on) => 
 test('/task-bucket says what to do in a project with no checklist', async ($, on) => {
   host(on, { placed: false })
   await start($)
-  expect((await $.command.run(cmd('task-bucket'))).text).toBe('No hand-off here yet. /pickup save writes one.')
+  expect((await $.command.run(cmd('task-bucket'))).text).toBe('No hand-off here yet. /pickup-save writes one.')
   const ui = await bucketPane($)
   expect(await ui.find({ type: 'Text', text: /No hand-off here yet/ })).toBeDefined()
   await ui.unmount()

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { ago, bucket, groupHeader, injection, overview, savePrompt, statusLine, summarize, taskGroups } from '../hooks/pickup.ts'
+import { ago, bucket, groupHeader, importPath, injection, overview, savePrompt, statusLine, summarize, taskGroups } from '../hooks/pickup.ts'
 
 const STANDARD = `# Pickup — VanSync
 _Saved 2026-11-02 08:40_
@@ -89,7 +89,7 @@ describe('statusLine', () => {
       '◆ VanSync · 2/4 · next: Wire the WhatsApp deep link in MessageView.swift · saved 2d ago',
     ))
   test('asks for a save once files changed', () =>
-    expect(statusLine('VanSync', { done: 0 }, now, now, true)).toBe('◆ VanSync · saved just now · unsaved progress — /pickup save'))
+    expect(statusLine('VanSync', { done: 0 }, now, now, true)).toBe('◆ VanSync · saved just now · unsaved progress — /pickup-save'))
   test('a project with no hand-off says so', () =>
     expect(statusLine('Flattn', undefined, undefined, now, false)).toBe('◆ Flattn · no hand-off yet'))
   test('a long next action is clipped', () =>
@@ -122,3 +122,11 @@ test('the overview lists each project on a line', () =>
   expect(
     overview([{ name: 'VanSync', root: '/v', path: 'handoff.md', summary: { done: 2, total: 4, next: 'ship' }, savedAt: 0, seenAt: 0 }], 3_600_000),
   ).toBe('VanSync — 2/4 · ship · saved 1h ago'))
+
+describe('importPath', () => {
+  test('keeps an absolute path', () => expect(importPath('/tmp/h.md', '/proj', '/home/me')).toBe('/tmp/h.md'))
+  test('puts a relative path under the project', () => expect(importPath('notes/h.md', '/proj', '/home/me')).toBe('/proj/notes/h.md'))
+  test('expands home', () => expect(importPath('~/h.md', '/proj', '/home/me')).toBe('/home/me/h.md'))
+  test('takes off quotes', () => expect(importPath('"/tmp/my h.md"', '/proj', undefined)).toBe('/tmp/my h.md'))
+  test('takes off a dragged path\'s backslashes', () => expect(importPath('/tmp/my\\ h.md', '/proj', undefined)).toBe('/tmp/my h.md'))
+})
