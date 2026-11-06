@@ -11,6 +11,7 @@ import {
   bucket,
   byRecent,
   groupHeader,
+  importPath,
   injection,
   isRegistry,
   noTasks,
@@ -22,6 +23,7 @@ import {
   summarize,
   taskGroups,
   transcriptPrompt,
+  type Imported,
   type Registry,
 } from './pickup.ts'
 
@@ -35,7 +37,7 @@ const here = atom({ plugin: 'project-pickup', key: 'here' } as const, null as He
 const dirty = atom({ plugin: 'project-pickup', key: 'dirty' } as const, false)
 const briefed = atom({ plugin: 'project-pickup', key: 'briefed' } as const, '')
 
-// One save at a time; a second /pickup save while one runs says so.
+// One save at a time; a second /pickup-save while one runs says so.
 let saving = false
 
 // The hand-off's path relative to root, whatever case its name is spelled in.
@@ -78,7 +80,17 @@ async function paint($: $) {
   $.ui.status(statusLine(projectName(h.root), h.summary, h.savedAt, await $.clock.now(), await read($, dirty)))
 }
 
-async function save($: $): Promise<string> {
+// The hand-off at `source`, which may sit outside the project; it is read, never moved.
+async function readImport($: $, source: string, root: string): Promise<Imported> {
+  const path = importPath(source, root, await $.env.get('HOME'))
+  const text = await $.fs.read(path).catch(() => {
+    throw new Error(`can't read ${path}`)
+  })
+  if (text.trim() === '') throw new Error(`${path} is empty`)
+  return { path, text }
+}
+
+async function save($: $, source = ''): Promise<string> {
   if (saving) return 'A hand-off is already being saved.'
   saving = true
   try {
@@ -87,14 +99,15 @@ async function save($: $): Promise<string> {
     const found = await discover($, root)
     const rel = found ?? DEFAULT_PATH
     const existing = found ? await $.fs.read(`${root}/${found}`) : undefined
+    const imported = source ? await readImport($, source, root) : undefined
     const stamp = new Date(await $.clock.now()).toISOString().slice(0, 16).replace('T', ' ')
-    const prompt = savePrompt(name, stamp, existing)
+    const prompt = savePrompt(name, stamp, existing, imported)
 
     let r = await $.model.fork({ prompt })
     if (!r.isAnswered && r.reason === 'nothing-to-fork') {
       // A fresh conversation: tidy the hand-off that is there into the standard layout.
       const transcript = transcriptPrompt(await $.session.messages())
-      if (transcript === '' && existing === undefined) throw new Error('nothing to save yet')
+      if (transcript === '' && existing === undefined && imported === undefined) throw new Error('nothing to save yet')
       r = await $.model.complete({ model: await $.session.model(), prompt: transcript + prompt })
     }
     if (!r.isAnswered) throw new Error(r.reason)
@@ -104,7 +117,8 @@ async function save($: $): Promise<string> {
     const h = await refresh($)
     const p = h.summary ? progress(h.summary) : undefined
     // session-health's [fresh start] reads the leading "Saved".
-    return `Saved hand-off to ${rel}${p ? ` (${p})` : ''}. Run /clear to start fresh from it.`
+    const from = imported ? `, imported from ${imported.path}` : ''
+    return `Saved hand-off to ${rel}${p ? ` (${p})` : ''}${from}. Run /clear to start fresh from it.`
   } catch (err) {
     const why = err instanceof Error ? err.message : String(err)
     $.ui.toast(`Hand-off not saved: ${why}`)
@@ -116,7 +130,8 @@ async function save($: $): Promise<string> {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'pickup', description: 'Where this project stands; /pickup save writes the hand-off', argumentHint: '[save]' })
+    await $.command.register({ name: 'pickup', description: 'Where this project stands; /pickup-save writes the hand-off' })
+    await $.command.register({ name: 'pickup-save', description: 'Write the hand-off, or import one from a path', argumentHint: '[path]' })
     await $.command.register({ name: 'projects', description: 'Show where each of your projects stands' })
     await $.command.register({ name: 'task-bucket', description: "Open or close a pane of this project's hand-off steps, in groups" })
     saving = false
@@ -126,12 +141,15 @@ export const register: Register = on => {
 
   on('command.run', { command: 'pickup' }, async ($, e) => {
     const arg = e.args.trim()
+    // The old spelling: an older session-health's [fresh start] still sends it.
     if (arg === 'save') return { text: await save($) }
-    if (arg !== '') return { text: 'Usage: /pickup to see where this project stands, /pickup save to write the hand-off.' }
+    if (arg !== '') return { text: `/pickup takes nothing after it (got "${arg}"). To save, run /pickup-save, or /pickup-save <path> to import a hand-off.` }
     const h = await refresh($)
     const line = statusLine(projectName(h.root), h.summary, h.savedAt, await $.clock.now(), await read($, dirty))
-    return { text: h.rel ? `${line}\n${h.rel}` : `${line}\n/pickup save writes one to ${DEFAULT_PATH}.` }
+    return { text: h.rel ? `${line}\n${h.rel}` : `${line}\n/pickup-save writes one to ${DEFAULT_PATH}.` }
   })
+
+  on('command.run', { command: 'pickup-save' }, async ($, e) => ({ text: await save($, e.args.trim()) }))
 
   on('command.run', { command: 'projects' }, async $ => {
     await $.ui.open({ id: PANE, title: 'Projects' })
@@ -221,7 +239,7 @@ export const register: Register = on => {
     const mine = (await read($, here))?.root
     return (
       <Box flexDirection="column">
-        {list.length === 0 && <Text dimColor>No projects with a hand-off yet. /pickup save writes one.</Text>}
+        {list.length === 0 && <Text dimColor>No projects with a hand-off yet. /pickup-save writes one.</Text>}
         {list.map(p => (
           <Box flexDirection="column" marginBottom={1}>
             <Text bold>

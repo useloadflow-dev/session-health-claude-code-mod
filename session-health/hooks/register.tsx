@@ -321,13 +321,13 @@ async function startHandoff($: $): Promise<boolean | 'busy'> {
   }
   try {
     const commands = await $.command.list()
-    if (!commands.some(c => c.name === 'pickup')) {
+    if (!commands.some(c => c.name === 'pickup-save')) {
       $.ui.toast(`[fresh start] needs the project-pickup mod: ${PICKUP_INSTALL}`)
       await endPhase($, 'writing')
       return false
     }
     // project-pickup's answer starts "Saved" once the file is written; it toasts its own failures.
-    const r = await $.command.run({ command: 'pickup', args: 'save' })
+    const r = await $.command.run({ command: 'pickup-save' })
     if (!r.text?.startsWith('Saved')) {
       await endPhase($, 'writing')
       return false

@@ -1,6 +1,6 @@
 {
   "name": "session-health",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Context, 5-hour and weekly usage meters above the prompt, with compact / fresh-start advice.",
   "author": {
     "name": "Jack Halperin"

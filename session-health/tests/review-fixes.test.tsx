@@ -52,7 +52,7 @@ function host(on: On, opts: { sessionId?: string; store?: Record<string, unknown
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
-  on('command.list', () => ({ value: [{ name: 'pickup' }] as never }))
+  on('command.list', () => ({ value: [{ name: 'pickup-save' }] as never }))
   on('ui.render', ($, e) => {
     const { Box } = $.ui.resolve(e)
     return <Box />
@@ -83,7 +83,7 @@ const saved = { text: 'Saved hand-off to .claude/handoff.md. Run /clear to start
 test('I-3: a reload clears a hand-off left "saving"', FRESH, async ($, on) => {
   host(on)
   let saves = 0
-  on('command.run', { command: 'pickup' }, async () => {
+  on('command.run', { command: 'pickup-save' }, async () => {
     saves += 1
     if (saves === 1) await new Promise<void>(() => {}) // the worker that ran it is gone
     return saved
@@ -102,7 +102,7 @@ test('I-3: a reload clears a hand-off left "saving"', FRESH, async ($, on) => {
 
 test('M-4: "hand-off ready" gives way after three more turns', FRESH, async ($, on) => {
   const h = host(on)
-  on('command.run', { command: 'pickup' }, () => saved)
+  on('command.run', { command: 'pickup-save' }, () => saved)
   const ui = await $.ui.mount({ plugin: 'session-health', surface: 'terminal', ...BAND })
   await ui.press({ key: 'fresh' })
   await ui.redraw()
@@ -116,7 +116,7 @@ test('M-4: "hand-off ready" gives way after three more turns', FRESH, async ($, 
 
 test('M-4: /resume also clears "hand-off ready"', FRESH, async ($, on) => {
   host(on)
-  on('command.run', { command: 'pickup' }, () => saved)
+  on('command.run', { command: 'pickup-save' }, () => saved)
   const ui = await $.ui.mount({ plugin: 'session-health', surface: 'terminal', ...BAND })
   await ui.press({ key: 'fresh' })
   await $.session.end({ reason: 'resume', sessionId: 's1', resume: {} } as never)

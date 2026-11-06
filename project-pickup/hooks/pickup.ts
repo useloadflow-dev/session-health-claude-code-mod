@@ -87,7 +87,7 @@ export const bucket = (groups: readonly Group[]) =>
   groups.map(g => [groupHeader(g), ...g.steps.map(s => `${STEP_MARK[s.state]} ${s.text}`)].join('\n')).join('\n\n')
 
 export const noTasks = (rel: string | undefined) =>
-  rel ? `${rel} has no Steps checklist yet. /pickup save adds one.` : 'No hand-off here yet. /pickup save writes one.'
+  rel ? `${rel} has no Steps checklist yet. /pickup-save adds one.` : 'No hand-off here yet. /pickup-save writes one.'
 
 export function summarize(md: string): Summary {
   const items = planLines(md).map(l => CHECK.exec(l)).filter((m): m is RegExpExecArray => m !== null)
@@ -123,7 +123,7 @@ export function progress(s: Summary): string | undefined {
 
 export function statusLine(name: string, s: Summary | undefined, savedAt: number | undefined, now: number, dirty: boolean): string {
   if (s === undefined || savedAt === undefined) {
-    return dirty ? `◆ ${name} · no hand-off yet — /pickup save` : `◆ ${name} · no hand-off yet`
+    return dirty ? `◆ ${name} · no hand-off yet — /pickup-save` : `◆ ${name} · no hand-off yet`
   }
   const parts = [`◆ ${name}`]
   const p = progress(s)
@@ -131,7 +131,7 @@ export function statusLine(name: string, s: Summary | undefined, savedAt: number
   const next = s.next ?? s.current
   if (next) parts.push(`next: ${clip(next, 48)}`)
   parts.push(`saved ${ago(now - savedAt)}`)
-  if (dirty) parts.push('unsaved progress — /pickup save')
+  if (dirty) parts.push('unsaved progress — /pickup-save')
   return parts.join(' · ')
 }
 
@@ -145,11 +145,38 @@ export function injection(name: string, relPath: string, savedAgo: string, text:
   ].join('\n')
 }
 
-export function savePrompt(name: string, stamp: string, existing?: string): string {
+export type Imported = { path: string; text: string }
+
+// The file /pickup-save was pointed at, as an absolute path. Quotes and the backslashes
+// of a dragged-in path come off, `~/` is home, and anything else sits under the project.
+export function importPath(arg: string, root: string, home: string | undefined): string {
+  const path = arg.replace(/^(['"])(.*)\1$/, '$2').replace(/\\(.)/g, '$1')
+  if (home && path.startsWith('~/')) return `${home}${path.slice(1)}`
+  return path.startsWith('/') ? path : `${root}/${path}`
+}
+
+// How an imported hand-off ranks against this conversation and the current hand-off.
+const IMPORT_RULE = [
+  'Carry everything still true in it into the hand-off you write.',
+  'Where it disagrees with this conversation or the current hand-off, keep whichever is more recent.',
+]
+
+export function savePrompt(name: string, stamp: string, existing?: string, imported?: Imported): string {
   const lines = [
     `Write the project hand-off for ${name}, so a brand-new Claude Code session days from now can pick the work up without re-reading the codebase.`,
     'Use what this conversation established. Be concrete: exact file paths, function names, commands, branch names, error messages.',
   ]
+  if (imported !== undefined) {
+    lines.push(
+      '',
+      `A hand-off was written elsewhere, at ${imported.path}, and is below.`,
+      ...IMPORT_RULE,
+      '',
+      '<imported-handoff>',
+      imported.text,
+      '</imported-handoff>',
+    )
+  }
   if (existing !== undefined) {
     lines.push(
       'The current hand-off is below. Merge into it rather than starting over: keep what is still true, update each step\'s status,',
