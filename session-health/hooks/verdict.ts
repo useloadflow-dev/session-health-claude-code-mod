@@ -25,7 +25,7 @@ export const LEVEL_RANK: Record<Level, number> = { healthy: 0, heavy: 1, compact
 export type Window = { percent: number; resetsAt?: string }
 export type Budget = { kind: '5h' | 'wk'; percent: number; resetsAt?: string }
 
-export type VerdictInput = {
+type VerdictInput = {
   percent?: number
   turnsLeft?: number
   compactions: number
@@ -36,7 +36,7 @@ export type VerdictInput = {
 
 // `nudge`: compacted freshCompactions times but not yet compact-worthy, so the
 // band can hint at a fresh start before the context fills up again.
-export type Verdict = { level: Level; budget?: Budget; nudge?: true }
+type Verdict = { level: Level; budget?: Budget; nudge?: true }
 
 export function turnsLeft(history: readonly number[], autoCompactAt: number): number | undefined {
   if (history.length < 2) return undefined

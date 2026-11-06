@@ -9,9 +9,7 @@ const TRANSCRIPT_BUDGET = 120_000
 
 import type { Group, Step, Summary } from '../types'
 
-export type { Group, Step, Summary }
-
-export type Entry = {
+type Entry = {
   name: string
   root: string
   path: string
