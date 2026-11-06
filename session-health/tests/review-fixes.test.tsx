@@ -4,7 +4,6 @@ import type { On } from 'claude-code'
 // Review fixes: the band and hand-off against the session's own events (measure, /clear, reload).
 declare const setTimeout: (fn: () => void, ms: number) => unknown
 const tick = () => new Promise<void>(r => setTimeout(() => r(), 1))
-const cmd = (command: string) => ({ command }) as never
 
 const USAGE = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 const BAND = {

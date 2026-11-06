@@ -23,8 +23,8 @@ export type Segment = { text: string; color?: string; dim?: boolean; bold?: bool
 export type Action = 'compact' | 'fresh'
 export type Line2 = { segments: Segment[]; actions: Action[] }
 
-export const LEVEL_ICON: Record<Level, string> = { healthy: '●', heavy: '◐', compact: '◑', fresh: '✦' }
-export const LEVEL_COLOR: Record<Level, string> = { healthy: LIME, heavy: AMBER, compact: CORAL, fresh: CORAL }
+const LEVEL_ICON: Record<Level, string> = { healthy: '●', heavy: '◐', compact: '◑', fresh: '✦' }
+const LEVEL_COLOR: Record<Level, string> = { healthy: LIME, heavy: AMBER, compact: CORAL, fresh: CORAL }
 
 const GAP = '   '
 const MIN_TIER = 5

@@ -5,7 +5,7 @@
 export const TALLY_KEY = 'compactions'
 export const TALLY_MAX = 50
 
-export type Tally = Record<string, { count: number; at: number }>
+type Tally = Record<string, { count: number; at: number }>
 
 export function isTally(v: unknown): v is Tally {
   if (typeof v !== 'object' || v === null || Array.isArray(v)) return false
