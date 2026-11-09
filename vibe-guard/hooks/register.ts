@@ -5,12 +5,6 @@ type $ = EngineInterface
 type Look = Located & { mode: Mode; pending?: Pending }
 
 const LEARN = 'vibe-wise:learn'
-const START = 'Start learning'
-const NEVER = 'Not in this project'
-const LATER = 'Ask me later'
-
-// Asked at most once a session; "Ask me later" waits for the next one.
-let asked = false
 
 async function readOr($: $, path: string): Promise<string | undefined> {
   try {
@@ -45,7 +39,6 @@ async function refresh($: $): Promise<Look> {
 }
 
 const project = (root: string) => root.split('/').filter(Boolean).pop() ?? root
-const neverKey = (root: string) => `never:${root}`
 
 function held(s: Look & { pending: Pending }): string {
   const stage = s.pending.stage ? ` (${s.pending.stage})` : ''
@@ -59,7 +52,6 @@ function held(s: Look & { pending: Pending }): string {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    asked = false
     await $.command.register({
       name: 'learning',
       description: 'VibeWise status, or /learning pause | resume',
@@ -78,35 +70,6 @@ export const register: Register = on => {
     } catch {}
     return next(e)
   })
-
-  on('prompt.submit', async ($, e, next) => {
-    const isUsers = e.origin === undefined || e.origin.kind === 'composer'
-    if (asked || !isUsers || e.text.trimStart().startsWith('/') || e.attachments?.length) return next(e)
-    if (!(await $.command.list()).some(c => c.name === LEARN)) return next(e)
-    const s = await look($)
-    if (s.mode !== 'none' || (await $.store.get(neverKey(s.root)))) return next(e)
-
-    asked = true
-    let answer: string
-    try {
-      answer = await $.ui.ask(`Start vibe-wise learning in ${project(s.root)}?`, {
-        options: [START, NEVER, LATER],
-        header: 'VibeWise',
-      })
-    } catch {
-      return next(e)
-    }
-    if (answer === NEVER) await $.store.set(neverKey(s.root), true)
-    if (answer !== START) return next(e)
-    // A prompt.submit hook may not run a command (it would wait on the turn it holds): start it just after.
-    const text = e.text
-    $.clock.after(1, () => {
-      void $.command.run({ command: LEARN, args: text }).catch((err: unknown) =>
-        $.ui.toast(`VibeWise didn't start: ${err instanceof Error ? err.message : String(err)}`),
-      )
-    })
-    return { drop: 'Starting VibeWise learning; your prompt goes with it.' }
-  }).catch(($, e, next) => next(e))
 
   for (const tool of ['Edit', 'Write', 'NotebookEdit'] as const) {
     on('tool.call', { tool }, async ($, e, next) => {
