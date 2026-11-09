@@ -1,13 +1,7 @@
-import { expect, mock, test } from 'claude-code/testing'
+import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-// vibe-guard against a project's vibe-wise notes: asking once, holding edits, pausing.
-declare const setTimeout: (fn: () => void, ms: number) => unknown
-const tick = () => new Promise<void>(r => setTimeout(() => r(), 1))
-
-const START = 'Start learning'
-const NEVER = 'Not in this project'
-const LATER = 'Ask me later'
+// vibe-guard against a project's vibe-wise notes: holding edits, pausing.
 
 const ACTIVE = '# Learner Profile\n\nLearning mode: active\nOnboarding: complete\n'
 const PAUSED = '# Learner Profile\n\nLearning mode: paused\nOnboarding: complete\n'
@@ -16,23 +10,13 @@ const CLEAR = '# Learning Progress\n\nNo learning events recorded yet.\n'
 
 type Host = {
   files: Map<string, string>
-  store: Map<string, unknown>
-  asked: string[]
-  answer: { value: string | undefined }
-  runs: { command: string; args: string }[]
   status: (string | undefined)[]
-  clock: { advance: (ms: number) => Promise<void> }
 }
 
-function host(on: On, opts: { files?: Record<string, string>; dirs?: string[]; store?: Record<string, unknown>; installed?: boolean } = {}): Host {
+function host(on: On, opts: { files?: Record<string, string>; dirs?: string[]} = {}): Host {
   const h: Host = {
     files: new Map(Object.entries(opts.files ?? {})),
-    store: new Map(Object.entries(opts.store ?? {})),
-    asked: [],
-    answer: { value: START },
-    runs: [],
     status: [],
-    clock: mock.clock(on),
   }
   const dirs = new Set(opts.dirs ?? [])
   for (const path of h.files.keys()) dirs.add(path.slice(0, path.lastIndexOf('/')))
@@ -48,25 +32,7 @@ function host(on: On, opts: { files?: Record<string, string>; dirs?: string[]; s
     h.files.set(e.path, e.text)
     return { value: undefined }
   })
-  on('store.get', (_$, e) => ({ value: h.store.get(e.key) }))
-  on('store.set', (_$, e) => {
-    h.store.set(e.key, e.value)
-    return { value: undefined }
-  })
-  on('command.list', () => ({
-    value: opts.installed === false ? [] : [{ name: 'vibe-wise:learn', description: 'Learn', source: 'plugin' }],
-  }) as never)
   on('command.register', () => ({ value: undefined }) as never)
-  on('command.run', (_$, e) => {
-    h.runs.push({ command: e.command, args: e.args })
-    return { text: '' }
-  })
-  on('tool.call', { tool: 'AskUserQuestion' }, (_$, e) => {
-    const q = (e.questions as { question: string }[])[0]!.question
-    h.asked.push(q)
-    if (h.answer.value === undefined) return { deny: 'dismissed' }
-    return { result: { questions: e.questions, answers: { [q]: h.answer.value } } } as never
-  })
   on('tool.call', { tool: 'Edit' }, () => ({ result: { ok: true } }) as never)
   on('tool.call', { tool: 'Write' }, () => ({ result: { ok: true } }) as never)
   on('ui.status', (_$, e) => {
@@ -74,14 +40,12 @@ function host(on: On, opts: { files?: Record<string, string>; dirs?: string[]; s
     return { value: undefined }
   })
   on('ui.toast', () => ({ value: undefined }))
-  on('prompt.submit', (_$, e) => ({ text: e.text }))
   on('turn.complete', (_$, e) => e as never)
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   return h
 }
 
 const start = { cwd: '/proj', surface: 'terminal', isInteractive: true } as never
-const prompt = (text: string) => ({ text, wait: false }) as never
 const edit = (file_path: string) => ({ tool: 'Edit', file_path, old_string: 'a', new_string: 'b' }) as never
 const write = (file_path: string) => ({ tool: 'Write', file_path, content: 'x' }) as never
 const learning = (progress: string, profile = ACTIVE) => ({
@@ -132,73 +96,6 @@ test('edits pass in a project without vibe-wise notes', async ($, on) => {
   host(on)
   await $.session.start(start)
   expect((await $.tool.call(edit('/proj/src/a.ts'))).deny).toBe(undefined)
-})
-
-// Asking once per project
-
-test('the first prompt in a project without notes asks; Start runs vibe-wise with the prompt', async ($, on) => {
-  const h = host(on)
-  await $.session.start(start)
-  const r = await $.prompt.submit(prompt('build a notes app'))
-  await h.clock.advance(10)
-  for (let i = 0; i < 20 && h.runs.length === 0; i++) await tick()
-  expect(h.asked.length).toBe(1)
-  expect(h.asked[0]).toContain('proj')
-  expect(h.runs).toEqual([{ command: 'vibe-wise:learn', args: 'build a notes app' }])
-  expect(r.drop).toBeDefined()
-})
-
-test('Not in this project is remembered across sessions', async ($, on) => {
-  const h = host(on)
-  h.answer.value = NEVER
-  await $.session.start(start)
-  const r = await $.prompt.submit(prompt('fix the bug'))
-  expect(r.text).toBe('fix the bug')
-  await $.session.start(start)
-  await $.prompt.submit(prompt('another'))
-  expect(h.asked.length).toBe(1)
-  expect(h.runs).toEqual([])
-})
-
-test('Ask me later asks again next session, not this one', async ($, on) => {
-  const h = host(on)
-  h.answer.value = LATER
-  await $.session.start(start)
-  expect((await $.prompt.submit(prompt('one'))).text).toBe('one')
-  await $.prompt.submit(prompt('two'))
-  expect(h.asked.length).toBe(1)
-  await $.session.start(start)
-  await $.prompt.submit(prompt('three'))
-  expect(h.asked.length).toBe(2)
-})
-
-test('a dismissed question lets the prompt through', async ($, on) => {
-  const h = host(on)
-  h.answer.value = undefined
-  await $.session.start(start)
-  expect((await $.prompt.submit(prompt('go'))).text).toBe('go')
-  expect(h.runs).toEqual([])
-})
-
-test('never asks where learning is set up or paused', async ($, on) => {
-  const h = host(on, { files: { '/proj/.vibe-wise/profile.md': PAUSED } })
-  await $.session.start(start)
-  expect((await $.prompt.submit(prompt('go'))).text).toBe('go')
-  expect(h.asked).toEqual([])
-})
-
-test('never asks when vibe-wise is not installed', async ($, on) => {
-  const h = host(on, { installed: false })
-  await $.session.start(start)
-  await $.prompt.submit(prompt('go'))
-  expect(h.asked).toEqual([])
-})
-
-test('a slash command is never interrupted', async ($, on) => {
-  const h = host(on)
-  await $.session.start(start)
-  await $.prompt.submit(prompt('/help'))
-  expect(h.asked).toEqual([])
 })
 
 // Status and pause / resume

@@ -13,7 +13,7 @@
     {
       "name": "vibe-guard",
       "source": "./vibe-guard",
-      "description": "Companion to vibe-wise: offers learning mode once per project, holds Claude's edits while a checkpoint waits on you, and shows where you are."
+      "description": "Companion to vibe-wise: holds Claude's edits while a checkpoint waits on you, and shows where you are. Start vibe-wise yourself with /vibe-wise:learn."
     },
     {
       "name": "project-pickup",
