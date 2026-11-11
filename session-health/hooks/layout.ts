@@ -27,7 +27,7 @@ const LEVEL_ICON: Record<Level, string> = { healthy: '●', heavy: '◐', compac
 const LEVEL_COLOR: Record<Level, string> = { healthy: LIME, heavy: AMBER, compact: CORAL, fresh: CORAL }
 
 const GAP = '   '
-const MIN_TIER = 5
+const MIN_TIER = 4
 const MIN_TEXT = 16
 
 export const BUTTON_LABEL: Record<Action, string> = { compact: 'compact', fresh: 'fresh start' }
@@ -60,13 +60,12 @@ export function width(segments: readonly Segment[]): number {
   return segments.reduce((n, s) => n + [...s.text].length, 0)
 }
 
-type Opts = { tokens: boolean; short: boolean; cells: number }
+type Opts = { short: boolean; cells: number }
 const TIERS: Opts[] = [
-  { tokens: true, short: false, cells: 10 },
-  { tokens: false, short: false, cells: 10 },
-  { tokens: false, short: true, cells: 10 },
-  { tokens: false, short: true, cells: 5 },
-  { tokens: false, short: true, cells: 0 },
+  { short: false, cells: 10 },
+  { short: true, cells: 10 },
+  { short: true, cells: 5 },
+  { short: true, cells: 0 },
 ]
 
 function meter(label: string, percent: number, cells: number): Segment[] {
@@ -96,10 +95,9 @@ export function line1(m: BandModel, tier: number): Segment[] {
     out.push({ text: `${ctxLabel} `, dim: true }, { text: '—', dim: true })
   } else {
     out.push(...meter(ctxLabel, m.percent, o.cells))
-    if (o.tokens && m.tokens !== undefined) {
+    if (o.cells > 0 && m.tokens !== undefined) {
       out.push({ text: ` ${kTokens(m.tokens)}/${kTokens(m.window)}`, dim: true })
     }
-    if (o.cells > 0) out.push({ text: ` ~${m.turnsLeft ?? '—'} turns`, dim: true })
     if (o.cells > 0 && m.compactions > 0) out.push({ text: ` ⟲${m.compactions}`, dim: true })
   }
 
