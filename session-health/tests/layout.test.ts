@@ -15,28 +15,34 @@ describe('line1 tiers', () => {
     const t = text(line1(full, 0))
     expect(t).toContain('CONTEXT')
     expect(t).toContain('116k/200k')
-    expect(t).toContain('~14 turns')
+    expect(t).not.toContain('turns')
     expect(t).toContain('⟲1')
     expect(t).toContain('SESSION')
     expect(t).toContain('2h14m')
     expect(t).toContain('WEEK')
     expect(t).toContain('3d')
   })
-  test('tier 1 drops token counts', () => expect(text(line1(full, 1))).not.toContain('116k'))
-  test('tier 2 uses short labels', () => {
-    const t = text(line1(full, 2))
-    expect(t).toContain('ctx')
-    expect(t).not.toContain('CONTEXT')
+  test('short-label tiers keep the context tokens next to ctx', () => {
+    for (const tier of [1, 2]) {
+      const t = text(line1(full, tier))
+      expect(t).toContain('ctx')
+      expect(t).not.toContain('CONTEXT')
+      expect(t).toContain('116k/200k')
+    }
   })
-  test('tier 4 has no bar glyphs', () => expect(text(line1(full, 4))).not.toMatch(/[█░]/))
-  test('tier 5 is minimal', () => expect(text(line1(full, 5))).toBe(' 58% · 31% · 64% ●'))
+  test('tier 3 has no bar glyphs or token counts', () => {
+    const t = text(line1(full, 3))
+    expect(t).not.toMatch(/[█░]/)
+    expect(t).not.toContain('116k')
+  })
+  test('tier 4 is minimal', () => expect(text(line1(full, 4))).toBe(' 58% · 31% · 64% ●'))
 })
 
 describe('fitLine1 never overflows', () => {
   for (const cols of [200, 120, 100, 80, 60, 40, 30]) {
     test(`fits ${cols} columns or is the minimal tier`, () => {
       const segs = fitLine1(full, cols)
-      expect(width(segs) <= cols || text(segs) === text(line1(full, 5))).toBe(true)
+      expect(width(segs) <= cols || text(segs) === text(line1(full, 4))).toBe(true)
     })
   }
   test('picks the widest tier that fits', () =>
@@ -53,8 +59,6 @@ describe('missing data', () => {
     const t = text(line1({ ...full, percent: undefined, tokens: undefined, turnsLeft: undefined }, 0))
     expect(t).toContain('CONTEXT —')
   })
-  test('no turns estimate → shows —', () =>
-    expect(text(line1({ ...full, turnsLeft: undefined }, 0))).toContain('~— turns'))
   test('⟲ hidden at 0 compactions', () =>
     expect(text(line1({ ...full, compactions: 0 }, 0))).not.toContain('⟲'))
 })
@@ -68,6 +72,10 @@ describe('line2', () => {
   })
   test('compact offers both', () =>
     expect(line2({ ...full, level: 'compact', turnsLeft: 3 }, 120)!.actions).toEqual(['compact', 'fresh']))
+  test('the next-step advice still names the turns left', () => {
+    expect(text(line2({ ...full, level: 'heavy', turnsLeft: 6 }, 160)!.segments)).toContain('(~6 turns left)')
+    expect(text(line2({ ...full, level: 'compact', turnsLeft: 3 }, 160)!.segments)).toContain('auto-compact in ~3 turns')
+  })
   test('fresh offers fresh only', () => {
     const l = line2({ ...full, level: 'fresh', compactions: 2 }, 120)!
     expect(text(l.segments)).toContain('compacted 2×')

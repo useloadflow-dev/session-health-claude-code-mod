@@ -3,7 +3,7 @@
 A Claude Code mod that keeps an eye on your session from a band above the prompt:
 
 ```
- CONTEXT ███████▌░░ 75% 150k/200k ~3 turns ⟲2   SESSION ███▎░░░░░░ 31% · 2h14m   WEEK ██████▍░░░ 64% · 3d
+ CONTEXT ███████▌░░ 75% 150k/200k ⟲2   SESSION ███▎░░░░░░ 31% · 2h14m   WEEK ██████▍░░░ 64% · 3d
  ◑ compact now — auto-compact in ~3 turns                                        [ compact ] [ fresh start ]
 ```
 
